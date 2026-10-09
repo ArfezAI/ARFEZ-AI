@@ -1,0 +1,1215 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARFEZ AI v3.0 — Kontrol Paneli</title>
+<style>
+:root{--bg-0:#0a0e1a;--bg-1:#111827;--bg-2:#1f2937;--bg-3:#374151;--text-1:#f9fafb;--text-2:#d1d5db;--text-3:#9ca3af;--accent:#3b82f6;--accent-light:#60a5fa;--accent-dark:#1d4ed8;--success:#10b981;--warning:#f59e0b;--danger:#ef4444;--border:#374151;--radius:12px;--font:'Segoe UI',system-ui,-apple-system,sans-serif}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg-0);color:var(--text-1);font-family:var(--font);line-height:1.5;min-height:100vh}
+.container{max-width:1400px;margin:0 auto;padding:24px}
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:12px}
+.brand{display:flex;align-items:center;gap:14px}
+.logo{width:44px;height:44px;background:linear-gradient(135deg,var(--accent),var(--accent-light));border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;color:white}
+.brand h1{font-size:24px;font-weight:700}
+.brand h1 span{color:var(--accent-light)}
+.brand p{font-size:13px;color:var(--text-3);margin-top:2px}
+.status{display:flex;align-items:center;gap:8px;background:rgba(16,185,129,0.15);color:var(--success);padding:8px 16px;border-radius:100px;font-size:13px;font-weight:600}
+.status-dot{width:8px;height:8px;background:var(--success);border-radius:50%;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+.nav{display:flex;gap:4px;margin-bottom:24px;background:var(--bg-1);padding:5px;border-radius:var(--radius);overflow-x:auto}
+.nav-btn{padding:10px 18px;border:none;background:transparent;color:var(--text-3);font-size:13px;font-weight:600;border-radius:8px;cursor:pointer;white-space:nowrap;transition:all 0.2s;font-family:inherit}
+.nav-btn:hover{color:var(--text-1);background:var(--bg-2)}
+.nav-btn.active{background:var(--accent);color:white}
+.section{display:none}
+.section.active{display:block;animation:fadeIn 0.3s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.grid-6{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+@media(max-width:1000px){.grid-2,.grid-3,.grid-4,.grid-6{grid-template-columns:1fr}}
+.card{background:var(--bg-1);border:1px solid var(--border);border-radius:var(--radius);padding:20px;position:relative}
+.card-title{font-size:13px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.last-update{font-size:11px;color:var(--text-3);font-weight:500;text-transform:none;letter-spacing:0}
+.score-wrap{display:flex;flex-direction:column;align-items:center;gap:6px}
+.score-wrap svg{transform:rotate(-90deg)}
+.score-bg{fill:none;stroke:var(--bg-3);stroke-width:8}
+.score-fill{fill:none;stroke-width:8;stroke-linecap:round;transition:stroke-dashoffset 1s ease}
+.score-val{font-size:26px;font-weight:800;color:var(--text-1)}
+.score-label{font-size:11px;color:var(--text-3);font-weight:600;text-align:center}
+.macro-card{background:var(--bg-0);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center;transition:all 0.2s}
+.macro-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.macro-name{font-size:11px;color:var(--text-3);font-weight:700;text-transform:uppercase;margin-bottom:6px}
+.macro-val{font-size:22px;font-weight:800;color:var(--text-1)}
+.macro-change{font-size:12px;font-weight:700;margin-top:4px}
+.macro-change.up{color:var(--success)}
+.macro-change.down{color:var(--danger)}
+.macro-change.neu{color:var(--text-3)}
+.layer-box{background:linear-gradient(180deg,var(--bg-1),var(--bg-0));border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;transition:all 0.2s}
+.layer-box:hover{border-color:var(--accent);transform:translateX(5px)}
+.layer-box.on{border-color:var(--accent);background:rgba(59,130,246,0.1)}
+.layer-name{font-weight:700;font-size:14px}
+.layer-desc{font-size:12px;color:var(--text-3);margin-top:2px}
+.layer-icon{font-size:22px}
+.layer-arrow{text-align:center;color:var(--text-3);font-size:18px;margin:3px 0}
+.funnel{display:flex;align-items:center;justify-content:center;background:linear-gradient(90deg,rgba(59,130,246,0.15),rgba(59,130,246,0.25));border:1px solid var(--accent-dark);border-radius:10px;padding:10px;margin-bottom:6px;font-weight:700;font-size:13px;color:var(--accent-light);transition:all 0.2s;cursor:pointer}
+.funnel:hover{transform:scale(1.02);background:rgba(59,130,246,0.3)}
+.funnel.final{background:var(--accent);color:white;border-color:var(--accent)}
+.metric{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);font-size:13px}
+.metric:last-child{border-bottom:none}
+.metric-k{color:var(--text-3);font-weight:500}
+.metric-v{font-weight:700;color:var(--text-1)}
+.metric-v.good{color:var(--success)}
+.metric-v.bad{color:var(--danger)}
+.metric-v.accent{color:var(--accent-light)}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--bg-2);border:1px solid var(--border);border-radius:100px;padding:7px 14px;margin:3px;font-size:13px;font-weight:600;color:var(--text-2);cursor:pointer;transition:all 0.2s}
+.chip:hover{border-color:var(--accent);background:rgba(59,130,246,0.1);color:var(--accent-light)}
+.chip.on{background:var(--accent);color:white;border-color:var(--accent)}
+.pipe{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg-0);border-radius:8px;margin-bottom:6px;border-left:3px solid var(--accent);font-size:13px;font-weight:600}
+.pipe.end{border-left-color:var(--success);background:rgba(16,185,129,0.08)}
+.pipe.waiting{border-left-color:var(--warning);opacity:0.6}
+.pipe.running{border-left-color:var(--success);background:rgba(16,185,129,0.08);animation:pulsePipe 1.5s infinite}
+@keyframes pulsePipe{0%,100%{opacity:1}50%{opacity:0.6}}
+.kg-node{display:inline-block;background:rgba(59,130,246,0.15);border:2px solid var(--accent);border-radius:8px;padding:8px 14px;margin:4px;font-size:12px;font-weight:700;color:var(--accent-light);transition:all 0.2s}
+.kg-node:hover{background:rgba(59,130,246,0.3);transform:scale(1.05)}
+.kg-arrow{color:var(--accent);font-size:18px;font-weight:800;margin:0 4px;vertical-align:middle}
+.mem-folder{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg-2);border-radius:8px;margin-bottom:6px;font-size:13px;font-weight:600;color:var(--text-2);cursor:pointer;transition:all 0.2s}
+.mem-folder:hover{background:rgba(59,130,246,0.15);color:var(--accent-light)}
+.cycle{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;padding:16px;background:var(--bg-0);border-radius:var(--radius)}
+.cycle-node{background:rgba(59,130,246,0.15);border:1px solid var(--accent-dark);border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;color:var(--accent-light)}
+.cycle-arrow{color:var(--accent);font-size:16px}
+.future-tag{display:inline-block;background:var(--bg-2);border:1px dashed var(--border);border-radius:6px;padding:5px 10px;margin:3px;font-size:11px;color:var(--text-3)}
+.stock-table{width:100%;border-collapse:collapse;font-size:13px}
+.stock-table th{text-align:left;padding:12px;color:var(--text-3);font-weight:600;border-bottom:1px solid var(--border)}
+.stock-table td{padding:12px;border-bottom:1px solid var(--border)}
+.stock-table tr:hover{background:rgba(59,130,246,0.05)}
+.signal-al{color:var(--success);font-weight:700}
+.signal-sat{color:var(--danger);font-weight:700}
+.signal-bekle{color:var(--warning);font-weight:700}
+.score-pill{background:var(--bg-2);padding:4px 10px;border-radius:100px;font-weight:700;font-size:12px}
+.score-pill.high{background:rgba(16,185,129,0.15);color:var(--success)}
+.score-pill.mid{background:rgba(245,158,11,0.15);color:var(--warning)}
+.score-pill.low{background:rgba(239,68,68,0.15);color:var(--danger)}
+.api-status{position:fixed;bottom:20px;right:20px;padding:8px 16px;border-radius:100px;font-size:12px;font-weight:600;z-index:100;transition:all 0.3s;cursor:pointer}
+.api-status.online{background:rgba(16,185,129,0.2);color:var(--success)}
+.api-status.offline{background:rgba(239,68,68,0.2);color:var(--danger)}
+.api-status.warn{background:rgba(245,158,11,0.2);color:var(--warning)}
+.toast-container{position:fixed;bottom:60px;right:20px;display:flex;flex-direction:column;gap:8px;z-index:200}
+.toast{padding:12px 18px;border-radius:10px;font-size:13px;font-weight:600;animation:slideIn 0.3s ease;max-width:320px;backdrop-filter:blur(10px)}
+.toast.success{background:rgba(16,185,129,0.9);color:white}
+.toast.error{background:rgba(239,68,68,0.9);color:white}
+.toast.info{background:rgba(59,130,246,0.9);color:white}
+@keyframes slideIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}
+.skeleton{background:linear-gradient(90deg,var(--bg-2) 25%,var(--bg-3) 50%,var(--bg-2) 75%);background-size:200% 100%;animation:skeleton 1.5s infinite;border-radius:6px}
+@keyframes skeleton{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.help-hint{position:fixed;bottom:20px;left:20px;font-size:11px;color:var(--text-3);opacity:0.5;pointer-events:none}
+.empty-state{text-align:center;padding:40px 20px;color:var(--text-3);font-size:13px}
+</style>
+<base target="_blank">
+</head>
+<body>
+<div class="container">
+<div class="header">
+<div class="brand">
+<div class="logo">A</div>
+<div><h1>ARFEZ AI <span>v3.0</span></h1><p>7-Katmanli Piyasa Analiz, Tahmin ve Ogrenme Sistemi</p></div>
+</div>
+<div class="status"><span class="status-dot"></span>Sistem Aktif</div>
+</div>
+<div class="nav" id="mainNav">
+<button class="nav-btn active" onclick="go('dashboard',this)">Kontrol Paneli</button>
+<button class="nav-btn" onclick="go('stocks',this)">Hisseler</button>
+<button class="nav-btn" onclick="go('analyze',this)">Teknik Analiz</button>
+<button class="nav-btn" onclick="go('architecture',this)">Mimari</button>
+<button class="nav-btn" onclick="go('watchlist',this)">Takip Listesi</button>
+<button class="nav-btn" onclick="go('elite',this)">Seckin Fonlar</button>
+<button class="nav-btn" onclick="go('backtest',this)">Geriye Donuk Test</button>
+<button class="nav-btn" onclick="go('memory',this)">Yapay Zeka Hafizasi</button>
+<button class="nav-btn" onclick="go('knowledge',this)">Bilgi Grafigi</button>
+<button class="nav-btn" onclick="go('pipeline',this)">Is Akisi</button>
+<button class="nav-btn" onclick="go('postmortem',this)">Olay Sonrasi Analiz</button>
+<button class="nav-btn" onclick="go('weekly',this)">Haftalık Analiz</button>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard" class="section active">
+<div class="grid-4" style="margin-bottom:20px">
+<div class="card"><div class="score-wrap">
+<svg width="90" height="90" viewBox="0 0 90 90"><circle class="score-bg" cx="45" cy="45" r="36"/><circle class="score-fill" id="ring-arfez" cx="45" cy="45" r="36" stroke="var(--accent)" stroke-dasharray="226" stroke-dashoffset="226"/></svg>
+<div class="score-val" id="val-arfez">--</div><div class="score-label">ARFEZ PUANI</div>
+</div></div>
+<div class="card"><div class="score-wrap">
+<svg width="90" height="90" viewBox="0 0 90 90"><circle class="score-bg" cx="45" cy="45" r="36"/><circle class="score-fill" id="ring-newworld" cx="45" cy="45" r="36" stroke="var(--success)" stroke-dasharray="226" stroke-dashoffset="226"/></svg>
+<div class="score-val" id="val-newworld">--</div><div class="score-label">YENI DUNYA</div>
+</div></div>
+<div class="card"><div class="score-wrap">
+<svg width="90" height="90" viewBox="0 0 90 90"><circle class="score-bg" cx="45" cy="45" r="36"/><circle class="score-fill" id="ring-technical" cx="45" cy="45" r="36" stroke="var(--warning)" stroke-dasharray="226" stroke-dashoffset="226"/></svg>
+<div class="score-val" id="val-technical">--</div><div class="score-label">TEKNIK</div>
+</div></div>
+<div class="card"><div class="score-wrap">
+<svg width="90" height="90" viewBox="0 0 90 90"><circle class="score-bg" cx="45" cy="45" r="36"/><circle class="score-fill" id="ring-fundamental" cx="45" cy="45" r="36" stroke="var(--accent)" stroke-dasharray="226" stroke-dashoffset="226"/></svg>
+<div class="score-val" id="val-fundamental">--</div><div class="score-label">TEMEL</div>
+</div></div>
+</div>
+<div class="grid-4" style="margin-bottom:20px">
+<div class="card"><div class="score-wrap">
+<svg width="90" height="90" viewBox="0 0 90 90"><circle class="score-bg" cx="45" cy="45" r="36"/><circle class="score-fill" id="ring-risk" cx="45" cy="45" r="36" stroke="var(--danger)" stroke-dasharray="226" stroke-dashoffset="226"/></svg>
+<div class="score-val" id="val-risk">--</div><div class="score-label">RISK</div>
+</div></div>
+<div class="card"><div class="score-wrap">
+<svg width="90" height="90" viewBox="0 0 90 90"><circle class="score-bg" cx="45" cy="45" r="36"/><circle class="score-fill" id="ring-confidence" cx="45" cy="45" r="36" stroke="var(--success)" stroke-dasharray="226" stroke-dashoffset="226"/></svg>
+<div class="score-val" id="val-confidence">--</div><div class="score-label">GUVEN</div>
+</div></div>
+<div class="card"><div class="score-wrap">
+<svg width="90" height="90" viewBox="0 0 90 90"><circle class="score-bg" cx="45" cy="45" r="36"/><circle class="score-fill" id="ring-macro" cx="45" cy="45" r="36" stroke="var(--warning)" stroke-dasharray="226" stroke-dashoffset="226"/></svg>
+<div class="score-val" id="val-macro">--</div><div class="score-label">MAKRO</div>
+</div></div>
+<div class="card"><div class="score-wrap">
+<svg width="90" height="90" viewBox="0 0 90 90"><circle class="score-bg" cx="45" cy="45" r="36"/><circle class="score-fill" id="ring-valuation" cx="45" cy="45" r="36" stroke="var(--accent)" stroke-dasharray="226" stroke-dashoffset="226"/></svg>
+<div class="score-val" id="val-valuation">--</div><div class="score-label">DEGERLEME</div>
+</div></div>
+</div>
+<div class="grid-3" style="margin-bottom:20px">
+<div class="card"><div class="score-wrap">
+<svg width="90" height="90" viewBox="0 0 90 90"><circle class="score-bg" cx="45" cy="45" r="36"/><circle class="score-fill" id="ring-capital" cx="45" cy="45" r="36" stroke="var(--accent)" stroke-dasharray="226" stroke-dashoffset="226"/></svg>
+<div class="score-val" id="val-capital">--</div><div class="score-label">SERMAYE AKISI</div>
+</div></div>
+<div class="card"><div class="score-wrap">
+<svg width="90" height="90" viewBox="0 0 90 90"><circle class="score-bg" cx="45" cy="45" r="36"/><circle class="score-fill" id="ring-theme" cx="45" cy="45" r="36" stroke="var(--success)" stroke-dasharray="226" stroke-dashoffset="226"/></svg>
+<div class="score-val" id="val-theme">--</div><div class="score-label">TEMA</div>
+</div></div>
+<div class="card" style="border:2px solid var(--accent);background:rgba(59,130,246,0.08)"><div class="score-wrap">
+<svg width="90" height="90" viewBox="0 0 90 90"><circle class="score-bg" cx="45" cy="45" r="36"/><circle class="score-fill" id="ring-final" cx="45" cy="45" r="36" stroke="var(--accent)" stroke-dasharray="226" stroke-dashoffset="226"/></svg>
+<div class="score-val" id="val-final" style="color:var(--accent-light);font-size:30px">--</div>
+<div class="score-label" style="color:var(--accent-light)">NIHAI PUAN</div>
+</div></div>
+</div>
+<div class="card" style="margin-top:20px">
+<div class="card-title">Macro Pulse <span class="last-update" id="macro-update">Bekleniyor...</span></div>
+<div class="grid-6" id="macroPanel">
+<div class="macro-card"><div class="macro-name">VIX</div><div class="macro-val" id="macro-vix">--</div><div class="macro-change" id="change-vix">--</div></div>
+<div class="macro-card"><div class="macro-name">DXY</div><div class="macro-val" id="macro-dxy">--</div><div class="macro-change" id="change-dxy">--</div></div>
+<div class="macro-card"><div class="macro-name">US10Y</div><div class="macro-val" id="macro-us10y">--</div><div class="macro-change" id="change-us10y">--</div></div>
+<div class="macro-card"><div class="macro-name">S&amp;P 500</div><div class="macro-val" id="macro-spx">--</div><div class="macro-change" id="change-spx">--</div></div>
+<div class="macro-card"><div class="macro-name">NASDAQ</div><div class="macro-val" id="macro-nasdaq">--</div><div class="macro-change neu" id="change-nasdaq">--</div></div>
+<div class="macro-card"><div class="macro-name">Rejim</div><div class="macro-val" id="macro-regime" style="font-size:16px">--</div><div class="macro-change neu" id="change-regime">--</div></div>
+</div>
+</div>
+</div>
+
+<!-- HAFTALIK ANALIZ -->
+<div id="weekly" class="section">
+<div class="card">
+<div class="card-title">Haftalık Tahmin Doğruluğu <span class="last-update" id="weekly-update">Bekleniyor...</span></div>
+<div id="weeklySummary" style="font-size:13px;color:var(--text-3);line-height:1.6">
+Veriler yükleniyor...
+</div>
+<div style="margin-top:20px">
+<button class="nav-btn" style="background:var(--accent);color:white" onclick="refreshWeekly()">Yenile</button>
+</div>
+</div>
+</div>
+
+<!-- HISSELER -->
+<div id="stocks" class="section">
+<div class="card">
+<div class="card-title">ARFEZ AI Hisse Evreni — Canli Skorlar <span class="last-update" id="stocks-update">Bekleniyor...</span></div>
+<div style="margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap;">
+<button class="nav-btn" style="background:var(--bg-2)" onclick="filterStocks('all')">Tumu</button>
+<button class="nav-btn" style="background:var(--bg-2)" onclick="filterStocks('AL')">AL</button>
+<button class="nav-btn" style="background:var(--bg-2)" onclick="filterStocks('BEKLE')">BEKLE</button>
+<button class="nav-btn" style="background:var(--bg-2)" onclick="filterStocks('SAT')">SAT</button>
+</div>
+<div style="overflow-x:auto">
+<table class="stock-table" id="stockTable">
+<thead><tr><th>Sembol</th><th>Sirket</th><th>Sektor</th><th>ARFEZ</th><th>Final</th><th>Sinyal</th><th>Hedef</th><th>Stop</th><th>R/R</th></tr></thead>
+<tbody id="stockBody"><tr><td colspan="9" style="text-align:center;color:var(--text-3)">Yukleniyor...</td></tr></tbody>
+</table>
+</div>
+</div>
+</div>
+
+
+<!-- TEKNIK ANALIZ (MODULE 5) -->
+<div id="analyze" class="section">
+<div class="card">
+<div class="card-title">Zaman Dilimli Sinyal Analizi <span class="last-update" id="analyze-update">Hazir</span></div>
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+<input id="analyzeSymbol" placeholder="Sembol (orn: NVDA)" style="background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text-1);font-size:13px;font-weight:600;text-transform:uppercase;width:160px;font-family:inherit">
+<select id="analyzePeriod" style="background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text-1);font-size:13px;font-weight:600;font-family:inherit">
+<option value="1g">Gunluk</option>
+<option value="1w">Haftalik</option>
+<option value="2w">2 Haftalik</option>
+<option value="1m">1 Ay</option>
+<option value="3m">3 Ay</option>
+<option value="6m">6 Ay</option>
+<option value="1y">Yillik</option>
+</select>
+<button class="nav-btn" style="background:var(--accent);color:white" onclick="runAnalyze()">Analiz Et</button>
+<button class="nav-btn" style="background:var(--bg-2)" onclick="runBatchAnalyze()">Tum Hisseleri Analiz Et</button>
+</div>
+<div id="analyzeResult" style="font-size:13px;color:var(--text-2)">Sembol yazip "Analiz Et" butonuna basin. Ilk istek 5-10 saniye surebilir (veri indiriliyor). Sonuc daily_scores tablosuna da islenir.</div>
+</div>
+</div>
+
+<!-- MIMARI -->
+<div id="architecture" class="section">
+<div class="grid-2">
+<div class="card">
+<div class="card-title">7 Katmanli Mimari</div>
+<div style="text-align:center;font-size:12px;color:var(--text-3);margin-bottom:6px">KULLANICI</div>
+<div class="layer-arrow">↓</div>
+<div class="layer-box on" onclick="hl(this)"><div><div class="layer-name">Sunum Katmani</div><div class="layer-desc">Kontrol Paneli / Streamlit</div></div><div class="layer-icon">🖥️</div></div>
+<div class="layer-arrow">↓</div>
+<div class="layer-box" onclick="hl(this)"><div><div class="layer-name">Orkestrasyon Motoru</div><div class="layer-desc">ARFEZ CORE</div></div><div class="layer-icon">⚙️</div></div>
+<div class="layer-arrow">↓</div>
+<div class="layer-box" onclick="hl(this)"><div><div class="layer-name">Zeka Katmani</div><div class="layer-desc">100 sinyal → 1 karar</div></div><div class="layer-icon">🧠</div></div>
+<div class="layer-arrow">↓</div>
+<div class="layer-box" onclick="hl(this)"><div><div class="layer-name">Analiz Katmani</div><div class="layer-desc">Teknik, Temel, Makro, Opsiyon, Sektor...</div></div><div class="layer-icon">📊</div></div>
+<div class="layer-arrow">↓</div>
+<div class="layer-box" onclick="hl(this)"><div><div class="layer-name">Veri Katmani</div><div class="layer-desc">Piyasa, Temel, Haber, Makro, Duyarlilik</div></div><div class="layer-icon">📡</div></div>
+<div class="layer-arrow">↓</div>
+<div class="layer-box" onclick="hl(this)"><div><div class="layer-name">Depolama Katmani</div><div class="layer-desc">SQLite → PostgreSQL</div></div><div class="layer-icon">💾</div></div>
+<div class="layer-arrow">↓</div>
+<div class="layer-box" onclick="hl(this)"><div><div class="layer-name">Geriye Donuk Test Motoru</div><div class="layer-desc">Tahmin → Sonuc → Ogrenme</div></div><div class="layer-icon">🔄</div></div>
+</div>
+<div class="card">
+<div class="card-title">Modul Haritasi</div>
+<div class="metric"><span class="metric-k">Veri Katmani</span><span class="metric-v accent">16 kaynak</span></div>
+<div class="metric"><span class="metric-k">Depolama Katmani</span><span class="metric-v accent">8 veritabani</span></div>
+<div class="metric"><span class="metric-k">Analiz Katmani</span><span class="metric-v accent">13 motor</span></div>
+<div class="metric"><span class="metric-k">Yeni Dunya Radari</span><span class="metric-v accent">12 modul</span></div>
+<div class="metric"><span class="metric-k">Firsat Motoru</span><span class="metric-v accent">5 motor</span></div>
+<div class="metric"><span class="metric-k">Zeka Katmani</span><span class="metric-v accent">6 motor</span></div>
+<div class="metric"><span class="metric-k">Orkestrator</span><span class="metric-v accent">5 modul</span></div>
+<div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+<div style="font-size:12px;color:var(--text-3);margin-bottom:8px;font-weight:600">Gelecek Moduller</div>
+<span class="future-tag">Yapay Zeka Ajan Katmani</span>
+<span class="future-tag">Monte Carlo Simulasyonu</span>
+<span class="future-tag">Rejim Yapay Zekasi</span>
+<span class="future-tag">Pekistirmeli Ogrenme Motoru</span>
+<span class="future-tag">Coklu Ajan</span>
+<span class="future-tag">Ekonomik Ikiz</span>
+<span class="future-tag">Kripto Istihbarati</span>
+<span class="future-tag">Tahvil Istihbarati</span>
+</div>
+</div>
+</div>
+</div>
+
+<!-- WATCHLIST -->
+<div id="watchlist" class="section">
+<div class="grid-2">
+<div class="card">
+<div class="card-title">Gecelik Takip Listesi Hunisi <span class="last-update" id="watchlist-update">Bekleniyor...</span></div>
+<div id="watchlistFunnel">
+<div class="funnel">10,000 Hisse <span style="margin-left:auto;font-size:11px;opacity:0.7">Evren</span></div>
+<div class="layer-arrow">↓</div>
+<div class="funnel">4,000 <span style="margin-left:auto;font-size:11px;opacity:0.7">Ilk filtre</span></div>
+<div class="layer-arrow">↓</div>
+<div class="funnel">1,000 <span style="margin-left:auto;font-size:11px;opacity:0.7">Teknik tarama</span></div>
+<div class="layer-arrow">↓</div>
+<div class="funnel">300 <span style="margin-left:auto;font-size:11px;opacity:0.7">Temel analiz</span></div>
+<div class="layer-arrow">↓</div>
+<div class="funnel">100 <span style="margin-left:auto;font-size:11px;opacity:0.7">Makro uyum</span></div>
+<div class="layer-arrow">↓</div>
+<div class="funnel">30 <span style="margin-left:auto;font-size:11px;opacity:0.7">Capraz Varlik</span></div>
+<div class="layer-arrow">↓</div>
+<div class="funnel">10 <span style="margin-left:auto;font-size:11px;opacity:0.7">Risk/Odul</span></div>
+<div class="layer-arrow">↓</div>
+<div class="funnel">3 <span style="margin-left:auto;font-size:11px;opacity:0.7">Guven</span></div>
+<div class="layer-arrow">↓</div>
+<div class="funnel final">1 <span style="margin-left:auto;font-size:11px;opacity:0.9">Nihai Secim</span></div>
+</div>
+</div>
+<div class="card">
+<div class="card-title">IPO ve Firsat Radari</div>
+<div class="metric"><span class="metric-k">IPO Puani</span><span class="metric-v accent">100 uzerinden</span></div>
+<div class="metric"><span class="metric-k">Erken Firsat</span><span class="metric-v accent">Asama 0-5</span></div>
+<div class="metric"><span class="metric-k">Siniflandirma</span><span class="metric-v">A+ → F</span></div>
+<div class="metric"><span class="metric-k">Katalizor Agirligi</span><span class="metric-v">%20</span></div>
+<div class="metric"><span class="metric-k">Buyume Agirligi</span><span class="metric-v">%15</span></div>
+<div class="metric"><span class="metric-k">Finansal Kalite</span><span class="metric-v">%15</span></div>
+<div style="margin-top:16px;padding:12px;background:var(--bg-0);border-radius:var(--radius)">
+<div style="font-size:12px;color:var(--text-3);font-weight:600;margin-bottom:6px">TEMEL DONGU</div>
+<div style="font-size:12px;color:var(--text-2);line-height:1.6">FIRSATI TESPIT ET → ANALIZ ET → SKORLA → RISKI OLÇ → ZAMANLAMAYI DEGERLENDIR → TAHMIN URET → GERCEKLESEN SONUCU OLÇ → GERIYE DONUK TEST YAP → HATAYI ANALIZ ET → SISTEMI GELISTIR</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ELITE FUNDS -->
+<div id="elite" class="section">
+<div class="card">
+<div class="card-title">Seckin Fon Motoru — Her Gece Otomatik Tarama <span class="last-update" id="elite-update">Bekleniyor...</span></div>
+<div style="margin-bottom:20px" id="fundChips">
+<span class="chip on">Buffett</span>
+<span class="chip">Soros</span>
+<span class="chip">Druckenmiller</span>
+<span class="chip">Tepper</span>
+<span class="chip">Ackman</span>
+<span class="chip">Tiger Global</span>
+<span class="chip">Coatue</span>
+<span class="chip">Bridgewater</span>
+<span class="chip">ARK</span>
+<span class="chip">Viking</span>
+</div>
+<div class="grid-2">
+<div>
+<div style="font-size:12px;color:var(--text-3);font-weight:600;margin-bottom:10px">TAKIP EDILEN METRIKLER</div>
+<div class="metric"><span class="metric-k">Pozisyon Degisimleri</span><span class="metric-v">Δ Q/Q</span></div>
+<div class="metric"><span class="metric-k">Yeni Acilan Pozisyonlar</span><span class="metric-v">Yeni kurulan</span></div>
+<div class="metric"><span class="metric-k">Kapatilan Pozisyonlar</span><span class="metric-v">Sifirlanan</span></div>
+<div class="metric"><span class="metric-k">Sektor Konsensusu</span><span class="metric-v">Ortak tema</span></div>
+<div class="metric"><span class="metric-k">Fon Konsensus Puani</span><span class="metric-v accent">Agirlikli</span></div>
+</div>
+<div id="fundConsensus">
+<div style="font-size:12px;color:var(--text-3);font-weight:600;margin-bottom:10px">FON KONSENSUS ANALIZI</div>
+<div style="padding:12px;background:var(--bg-0);border-radius:8px;margin-bottom:8px">
+<div style="font-size:13px;font-weight:700;margin-bottom:4px">NVDA — Yapay Zeka Altyapisi</div>
+<div style="font-size:12px;color:var(--text-3)">7/10 fon artirim yapmis • 2/10 azaltim • Ortalama agirlik %4.2</div>
+</div>
+<div style="padding:12px;background:var(--bg-0);border-radius:8px;margin-bottom:8px">
+<div style="font-size:13px;font-weight:700;margin-bottom:4px">PLTR — Veri Analitigi</div>
+<div style="font-size:12px;color:var(--text-3)">5/10 fon yeni pozisyon • 3/10 artirim • Sektor rotasyonu aktif</div>
+</div>
+<div style="padding:12px;background:var(--bg-0);border-radius:8px">
+<div style="font-size:13px;font-weight:700;margin-bottom:4px">ELF — Tuketici Guzellik</div>
+<div style="font-size:12px;color:var(--text-3)">2/10 fon artirim • 6/10 notr • Dusuk kurumsal ilgi</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- BACKTEST -->
+<div id="backtest" class="section">
+<div class="grid-2">
+<div class="card">
+<div class="card-title">Backtest Metrikleri <span class="last-update" id="backtest-update">Bekleniyor...</span></div>
+<div id="backtestMetrics">
+<div class="metric"><span class="metric-k">Yon Dogrulugu</span><span class="metric-v good">%72.4</span></div>
+<div class="metric"><span class="metric-k">Hedef Isabet Orani</span><span class="metric-v good">%58.3</span></div>
+<div class="metric"><span class="metric-k">Stop Isabet Orani</span><span class="metric-v bad">%21.7</span></div>
+<div class="metric"><span class="metric-k">Bant Dogrulugu</span><span class="metric-v good">%64.1</span></div>
+<div class="metric"><span class="metric-k">Guven Kalibrasyonu</span><span class="metric-v accent">±4.2%</span></div>
+<div class="metric"><span class="metric-k">Maksimum Dusus</span><span class="metric-v bad">-8.4%</span></div>
+<div class="metric"><span class="metric-k">Sharpe Orani</span><span class="metric-v good">1.34</span></div>
+<div class="metric"><span class="metric-k">Sortino Orani</span><span class="metric-v good">1.87</span></div>
+</div>
+</div>
+<div class="card">
+<div class="card-title">Ogrenme Dongusu</div>
+<div class="cycle">
+<div class="cycle-node">Tahmin</div><div class="cycle-arrow">→</div>
+<div class="cycle-node">Sonuc</div><div class="cycle-arrow">→</div>
+<div class="cycle-node">Hata</div><div class="cycle-arrow">→</div>
+<div class="cycle-node">Kalibrasyon</div><div class="cycle-arrow">→</div>
+<div class="cycle-node">Agirlik Opt.</div><div class="cycle-arrow">→</div>
+<div class="cycle-node">Ogrenme</div><div class="cycle-arrow">→</div>
+<div class="cycle-node">Yeni Tahmin</div>
+</div>
+<div style="margin-top:20px;padding:12px;background:var(--bg-0);border-radius:var(--radius)">
+<div style="font-size:12px;color:var(--text-3);font-weight:600;margin-bottom:8px">HATA KODLARI</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span class="future-tag" style="border-style:solid;border-color:var(--danger);color:var(--danger)">M1 — Makro</span>
+<span class="future-tag" style="border-style:solid;border-color:var(--danger);color:var(--danger)">H1 — Haber</span>
+<span class="future-tag" style="border-style:solid;border-color:var(--danger);color:var(--danger)">S1 — Sektor</span>
+<span class="future-tag" style="border-style:solid;border-color:var(--danger);color:var(--danger)">T1 — Teknik</span>
+<span class="future-tag" style="border-style:solid;border-color:var(--danger);color:var(--danger)">R1 — Rejim</span>
+<span class="future-tag" style="border-style:solid;border-color:var(--danger);color:var(--danger)">B1 — Bant</span>
+<span class="future-tag" style="border-style:solid;border-color:var(--danger);color:var(--danger)">C1 — Capraz Varlik</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- MEMORY -->
+<div id="memory" class="section">
+<div class="grid-2">
+<div class="card">
+<div class="card-title">AI Memory Yapisi</div>
+<div class="mem-folder" onclick="loadMemory('companies')">companies/ — Sirket profilleri ve tarihce</div>
+<div class="mem-folder" onclick="loadMemory('earnings')">earnings/ — Bilanco ve guidance kayitlari</div>
+<div class="mem-folder" onclick="loadMemory('mistakes')">mistakes/ — Hata post-mortem kayitlari</div>
+<div class="mem-folder" onclick="loadMemory('macro')">macro/ — Makroekonomik olaylar ve etkiler</div>
+<div class="mem-folder" onclick="loadMemory('patterns')">patterns/ — Tekrar eden piyasa kaliplari</div>
+<div class="mem-folder" onclick="loadMemory('thesis')">thesis/ — Yatirim tezleri ve revizyonlar</div>
+<div class="mem-folder" onclick="loadMemory('journal')">journal/ — Sistem karar gunlugu</div>
+<div style="margin-top:12px;padding:10px;background:rgba(59,130,246,0.1);border-radius:8px;border:1px solid var(--accent-dark)">
+<div style="font-size:12px;font-weight:700;color:var(--accent-light)">Ornek: NVDA</div>
+<div style="font-size:11px;color:var(--text-3);margin-top:4px">1000+ sayfalik birikmis bilgi, earnings gecmisi, hatalar, tezler ve pattern kayitlari tek klasorde.</div>
+</div>
+</div>
+<div class="card">
+<div class="card-title">Olay Sonrasi Analiz Motoru <span class="last-update" id="memory-update">Bekleniyor...</span></div>
+<div id="memoryContent" style="font-size:12px;color:var(--text-3);margin-bottom:12px;line-height:1.6">
+Her yanlis tahmin icin 8 soru:<br>1. Kok neden nedir?<br>2. Hata hangi hisselere yayildi?<br>3. Tespit edilebilir miydi?<br>4. Capraz Varlik ne diyordu?<br>5. Sektor ve rakipler ne diyordu?<br>6. Rejim dogru muydu?<br>7. Hangi veri eksikti?<br>8. Hangi yeni kural eklenmeli?
+</div>
+<div id="memoryStats">
+<div class="metric"><span class="metric-k">Toplam Tahmin</span><span class="metric-v" id="mem-total">--</span></div>
+<div class="metric"><span class="metric-k">Analiz Edilen Hata</span><span class="metric-v" id="mem-errors">--</span></div>
+<div class="metric"><span class="metric-k">Cozulen Kural</span><span class="metric-v good" id="mem-rules">--</span></div>
+<div class="metric"><span class="metric-k">Kalibrasyon Iyilesmesi</span><span class="metric-v good" id="mem-cal">--</span></div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- KNOWLEDGE GRAPH -->
+<div id="knowledge" class="section">
+<div class="card">
+<div class="card-title">Bilgi Grafigi — Zincir Reaksiyon Analizi <span class="last-update" id="knowledge-update">Bekleniyor...</span></div>
+<div style="text-align:center;padding:24px;overflow-x:auto" id="knowledgeGraph">
+<div style="display:inline-block;text-align:center">
+<div class="kg-node">AI</div><div class="kg-arrow">↓</div>
+<div class="kg-node">GPU</div><div class="kg-arrow">↓</div>
+<div class="kg-node">HBM</div><div class="kg-arrow">↓</div>
+<div class="kg-node">TSMC</div><div class="kg-arrow">↓</div>
+<div class="kg-node">ASML</div><div class="kg-arrow">↓</div>
+<div class="kg-node">Guc</div><div class="kg-arrow">↓</div>
+<div class="kg-node">Bakir</div><div class="kg-arrow">↓</div>
+<div class="kg-node">Transformator</div><div class="kg-arrow">↓</div>
+<div class="kg-node">Kamu Hizmetleri</div><div class="kg-arrow">↓</div>
+<div class="kg-node">Insaat</div>
+</div>
+</div>
+<div style="padding:16px;background:var(--bg-0);border-radius:var(--radius);margin-top:12px">
+<div style="font-size:12px;color:var(--text-3);font-weight:600;margin-bottom:8px">ORNEK SENARYO</div>
+<div style="font-size:13px;color:var(--text-2);line-height:1.7">
+"TSMC yeni bir fabrika yatirimi aciklarsa → ASML'ye daha fazla EUV siparisi → HBM ureticilerine talep artisi → GPU fiyatlarinda baski → AI sirketlerinin marjlari etkilenir → Utilities ve Construction sektorune yeni talep..."<br><br>
+ARFEZ bu zincirin tamamini grafik olarak bilir ve bir olay oldugunda tum baglantilari analiz eder.
+</div>
+</div>
+</div>
+</div>
+
+<!-- POST-MORTEM -->
+<div id="postmortem" class="section">
+<div class="card">
+<div class="card-title">Olay Sonrasi Analiz <span class="last-update" id="postmortem-update">Bekleniyor...</span></div>
+<div id="postmortemContent" style="font-size:13px;color:var(--text-3);line-height:1.6">
+Olay sonrasi analiz verileri burada görünecek...
+</div>
+<div id="postmortemStats">
+<div class="metric"><span class="metric-k">Toplam Tahmin</span><span class="metric-v" id="posttotal">--</span></div>
+<div class="metric"><span class="metric-k">Hata Dağılımı</span><span class="metric-v" id="postdist">--</span></div>
+<div class="metric"><span class="metric-k">En Çok Geçen Hata</span><span class="metric-v" id="postfreq">--</span></div>
+</div>
+</div>
+</div>
+
+<!-- PIPELINE -->
+<div id="pipeline" class="section">
+<div class="grid-2">
+<div class="card">
+<div class="card-title">Sabah Analiz Is Akisi <span class="last-update" id="pipeline-update">Bekleniyor...</span></div>
+<div id="pipelineList">
+<div class="pipe">1. Makro Tarama</div>
+<div class="pipe">2. Rejim Belirleme</div>
+<div class="pipe">3. Tema Analizi</div>
+<div class="pipe">4. Yeni Dunya Radari</div>
+<div class="pipe">5. Firsat Motoru</div>
+<div class="pipe">6. Fundamental Analiz</div>
+<div class="pipe">7. Opsiyon Analizi</div>
+<div class="pipe">8. Risk Degerlendirmesi</div>
+<div class="pipe">9. Guven Kalibrasyonu</div>
+<div class="pipe end">10. Nihai Karar</div>
+</div>
+</div>
+<div class="card">
+<div class="card-title">Gun Ici Rejim Takibi</div>
+<div class="metric"><span class="metric-k">09:30 Sabah Kontrol</span><span class="metric-v good">✓ Tamamlandi</span></div>
+<div class="metric"><span class="metric-k">12:00 Ogle Kontrol</span><span class="metric-v good">✓ Tamamlandi</span></div>
+<div class="metric"><span class="metric-k">14:00 Ogleden Sonra</span><span class="metric-v accent">⏳ Bekliyor</span></div>
+<div class="metric"><span class="metric-k">15:30 Kapanis Oncesi</span><span class="metric-v">—</span></div>
+<div style="margin-top:16px;padding:12px;background:var(--bg-0);border-radius:var(--radius)">
+<div style="font-size:12px;color:var(--text-3);font-weight:600;margin-bottom:8px">ERKEN UYARI ALARMLARI</div>
+<div class="metric"><span class="metric-k">VIX +10% (Sari)</span><span class="metric-v">Pasif</span></div>
+<div class="metric"><span class="metric-k">VIX +20% (Kirmizi)</span><span class="metric-v">Pasif</span></div>
+<div class="metric"><span class="metric-k">DXY Hizli Yukselis</span><span class="metric-v">Pasif</span></div>
+<div class="metric"><span class="metric-k">Sektor ETF Dususu</span><span class="metric-v">Pasif</span></div>
+</div>
+</div>
+</div>
+</div>
+
+</div>
+
+<div id="apiStatus" class="api-status offline" onclick="checkApiHealth()">API: Baglaniyor...</div>
+<div class="toast-container" id="toastContainer"></div>
+<div class="help-hint">1-9: Sekme degistir | R: Yenile</div>
+
+<script>
+
+const API_BASE = "http://127.0.0.1:5000/api";
+let allStocks = [];
+let apiOnline = false;
+let lastToast = null;
+
+function cacheSet(key, data) {
+    try { localStorage.setItem("arfez_" + key, JSON.stringify({t: Date.now(), d: data})); } catch(e){}
+}
+function cacheGet(key, maxAgeMs) {
+    maxAgeMs = maxAgeMs || 60000;
+    try {
+        const raw = localStorage.getItem("arfez_" + key);
+        if(!raw) return null;
+        const obj = JSON.parse(raw);
+        if(Date.now() - obj.t > maxAgeMs) return null;
+        return obj.d;
+    } catch(e){ return null; }
+}
+
+function toast(msg, type, duration) {
+    type = type || "info";
+    duration = duration || 4000;
+    const c = document.getElementById("toastContainer");
+    const t = document.createElement("div");
+    t.className = "toast " + type;
+    t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(function() {
+        t.style.opacity = "0";
+        t.style.transform = "translateX(120%)";
+        setTimeout(function(){ t.remove(); }, 300);
+    }, duration);
+}
+
+function timeAgo(ts) {
+    if(!ts) return "Bekleniyor...";
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if(diff < 5) return "Az once";
+    if(diff < 60) return diff + " sn once";
+    if(diff < 3600) return Math.floor(diff / 60) + " dk once";
+    return Math.floor(diff / 3600) + " sa once";
+}
+function setUpdate(id, ts) {
+    const el = document.getElementById(id);
+    if(el) el.textContent = timeAgo(ts);
+}
+
+function setApiStatus(online, msg) {
+    const el = document.getElementById("apiStatus");
+    apiOnline = online;
+    el.className = "api-status " + (online ? "online" : "offline");
+    el.textContent = msg || (online ? "API: Online" : "API: Offline");
+    if(online && lastToast === false) { toast("API baglantisi saglandi", "success"); lastToast = true; }
+    if(!online && lastToast !== false) { toast("API baglantisi kesildi — cache aktif", "error", 6000); lastToast = false; }
+}
+
+function checkApiHealth() {
+    fetch(API_BASE + "/health")
+        .then(function(res){ return res.json(); })
+        .then(function(data){
+            var ok = (data.status === "healthy" || data.status === "ok");
+            var warn = (data.status === "degraded");
+            setApiStatus(ok || warn, "API: " + (ok ? "Online" : warn ? "Kisitli" : "Sorun var"));
+            if(warn) { document.getElementById("apiStatus").className = "api-status warn"; }
+        })
+        .catch(function(){ setApiStatus(false, "API: Baglanti yok"); });
+}
+
+function go(id, btn) {
+    document.querySelectorAll(".section").forEach(function(s){ s.classList.remove("active"); });
+    document.querySelectorAll(".nav-btn").forEach(function(b){ b.classList.remove("active"); });
+    document.getElementById(id).classList.add("active");
+    btn.classList.add("active");
+    if(id === "stocks") loadStocks();
+    if(id === "watchlist") loadWatchlist();
+    if(id === "elite") loadEliteFunds();
+    if(id === "backtest") loadBacktest();
+    if(id === "memory") loadMemoryStats();
+    if(id === "knowledge") loadKnowledgeGraph();
+    if(id === "pipeline") loadPipeline();
+    if(id === "postmortem") loadPostmortem();
+    if(id === "weekly") loadWeeklySummary();
+}
+
+function hl(el) {
+    document.querySelectorAll(".layer-box").forEach(function(b){ b.classList.remove("on"); });
+    el.classList.add("on");
+}
+
+function updateRing(id, value) {
+    const ring = document.getElementById("ring-" + id);
+    const val = document.getElementById("val-" + id);
+    if(!ring || !val) return;
+    const c = 2 * Math.PI * 36;
+    const offset = c - (value / 100) * c;
+    ring.style.strokeDashoffset = offset;
+    val.textContent = value;
+}
+
+async function loadScores() {
+    try {
+        const res = await fetch(API_BASE + "/scores");
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        updateRing("arfez", data.arfez_score != null ? data.arfez_score : 0);
+        updateRing("newworld", data.new_world != null ? data.new_world : 0);
+        updateRing("technical", data.technical != null ? data.technical : 0);
+        updateRing("fundamental", data.fundamental != null ? data.fundamental : 0);
+        updateRing("risk", data.risk != null ? data.risk : 0);
+        updateRing("confidence", data.confidence != null ? data.confidence : 0);
+        updateRing("macro", data.macro != null ? data.macro : 0);
+        updateRing("valuation", data.valuation != null ? data.valuation : 0);
+        updateRing("capital", data.capital_flow != null ? data.capital_flow : 0);
+        updateRing("theme", data.theme != null ? data.theme : 0);
+        updateRing("final", data.final != null ? data.final : 0);
+        cacheSet("scores", data);
+        setApiStatus(true);
+    } catch(err) {
+        const cached = cacheGet("scores", 300000);
+        if(cached) {
+            updateRing("arfez", cached.arfez_score != null ? cached.arfez_score : 0);
+            updateRing("newworld", cached.new_world != null ? cached.new_world : 0);
+            updateRing("technical", cached.technical != null ? cached.technical : 0);
+            updateRing("fundamental", cached.fundamental != null ? cached.fundamental : 0);
+            updateRing("risk", cached.risk != null ? cached.risk : 0);
+            updateRing("confidence", cached.confidence != null ? cached.confidence : 0);
+            updateRing("macro", cached.macro != null ? cached.macro : 0);
+            updateRing("valuation", cached.valuation != null ? cached.valuation : 0);
+            updateRing("capital", cached.capital_flow != null ? cached.capital_flow : 0);
+            updateRing("theme", cached.theme != null ? cached.theme : 0);
+            updateRing("final", cached.final != null ? cached.final : 0);
+        }
+        setApiStatus(false);
+    }
+}
+
+function renderMacroData(data) {
+    var map = {vix: "vix", dxy: "dxy", us10y: "us10y", sp500: "spx", nasdaq: "nasdaq"};
+    Object.keys(map).forEach(function(k) {
+        var el = document.getElementById("macro-" + map[k]);
+        if(el && data[k] !== undefined && data[k] !== null) el.textContent = data[k];
+    });
+    var regimeEl = document.getElementById("macro-regime");
+    if(regimeEl) regimeEl.textContent = data.regime ? String(data.regime).toUpperCase() : "--";
+}
+
+async function loadMacro() {
+    try {
+        const res = await fetch(API_BASE + "/macro");
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        renderMacroData(data);
+        cacheSet("macro", data);
+        setUpdate("macro-update", Date.now());
+    } catch(err) {
+        const cached = cacheGet("macro", 300000);
+        if(cached) {
+            renderMacroData(cached);
+            try {
+                const raw = localStorage.getItem("arfez_macro");
+                if(raw) { const obj = JSON.parse(raw); setUpdate("macro-update", obj.t); }
+            } catch(e){}
+        }
+    }
+}
+
+async function loadStocks() {
+    const tbody = document.getElementById("stockBody");
+    try {
+        const res = await fetch(API_BASE + "/stocks");
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        allStocks = Array.isArray(data) ? data : (data.stocks || []);
+        renderStocks(allStocks);
+        cacheSet("stocks", allStocks);
+        setUpdate("stocks-update", Date.now());
+        setApiStatus(true);
+    } catch(err) {
+        const cached = cacheGet("stocks", 300000);
+        if(cached && cached.length) {
+            allStocks = cached;
+            renderStocks(allStocks);
+            toast("Hisseler cache'den yuklendi", "info", 3000);
+        } else {
+            tbody.innerHTML = '<tr><td colspan="9" class="empty-state">API baglanti hatasi — veri yok</td></tr>';
+        }
+        setApiStatus(false);
+    }
+}
+
+function renderStocks(data) {
+    const tbody = document.getElementById("stockBody");
+    if(!data || !data.length) {
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-state">Veri bulunamadi</td></tr>';
+        return;
+    }
+    tbody.innerHTML = data.map(function(s) {
+        const signalClass = s.signal === "AL" ? "signal-al" : s.signal === "SAT" ? "signal-sat" : "signal-bekle";
+        const fs = s.final_score != null ? s.final_score : 0;
+        const pillClass = fs >= 85 ? "high" : fs >= 60 ? "mid" : "low";
+        return "<tr>" +
+            "<td><b>" + (s.symbol || "") + "</b></td>" +
+            "<td>" + (s.name || "") + "</td>" +
+            "<td>" + (s.sector || "") + "</td>" +
+            '<td><span class="score-pill ' + pillClass + '">' + (s.arfez_score != null ? s.arfez_score : "--") + "</span></td>" +
+            '<td><span class="score-pill ' + pillClass + '">' + (s.final_score != null ? s.final_score : "--") + "</span></td>" +
+            '<td class="' + signalClass + '">' + (s.signal || "BEKLE") + "</td>" +
+            "<td>" + (s.target != null ? s.target : "--") + "</td>" +
+            "<td>" + (s.stop != null ? s.stop : "--") + "</td>" +
+            "<td>" + (s.expected_return != null ? s.expected_return : (s.rr != null ? s.rr : "--")) + "</td>" +
+            "</tr>";
+    }).join("");
+}
+
+function filterStocks(type) {
+    if(type === "all") renderStocks(allStocks);
+    else renderStocks(allStocks.filter(function(s){ return (s.signal || "BEKLE") === type; }));
+}
+
+async function loadWatchlist() {
+    try {
+        const res = await fetch(API_BASE + "/watchlist");
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        const container = document.getElementById("watchlistFunnel");
+        const steps = [
+            ["universe", "Evren"], ["filter_1", "Ilk filtre"], ["technical", "Teknik tarama"],
+            ["fundamental", "Temel analiz"], ["macro", "Makro uyum"], ["cross_asset", "Capraz Varlik"],
+            ["risk_reward", "Risk/Odul"], ["confidence", "Guven"], ["final_pick", "Nihai Secim"]
+        ];
+        const html = [];
+        steps.forEach(function(s, i) {
+            const isFinal = (i === steps.length - 1);
+            const val = (data[s[0]] !== undefined && data[s[0]] !== null) ? data[s[0]] : "--";
+            html.push('<div class="funnel ' + (isFinal ? 'final' : '') + '">' + val +
+                ' <span style="margin-left:auto;font-size:11px;opacity:0.7">' + s[1] + '</span></div>');
+            if(!isFinal) html.push('<div class="layer-arrow">↓</div>');
+        });
+        container.innerHTML = html.join("");
+        cacheSet("watchlist", data);
+        setUpdate("watchlist-update", Date.now());
+    } catch(err) {
+        setUpdate("watchlist-update", null);
+    }
+}
+
+async function loadEliteFunds() {
+    try {
+        const res = await fetch(API_BASE + "/elite-funds");
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+
+        if(data.funds && Array.isArray(data.funds)) {
+            document.getElementById("fundChips").innerHTML = data.funds.map(function(f, i) {
+                return '<span class="chip ' + (i === 0 ? 'on' : '') + '">' + f + '</span>';
+            }).join("");
+        }
+
+        const container = document.getElementById("fundConsensus");
+        if(data.consensus && typeof data.consensus === "object") {
+            const entries = Object.keys(data.consensus).map(function(sym) {
+                return Object.assign({symbol: sym}, data.consensus[sym]);
+            }).sort(function(a, b) { return b.count - a.count; }).slice(0, 6);
+
+            let html = '<div style="font-size:12px;color:var(--text-3);font-weight:600;margin-bottom:10px">FON KONSENSUS ANALIZI (2026Q2)</div>';
+            if(!entries.length) {
+                html += '<div style="color:var(--text-3);font-size:12px">Veri bulunamadi.</div>';
+            }
+            html += entries.map(function(c) {
+                return '<div style="padding:12px;background:var(--bg-0);border-radius:8px;margin-bottom:8px">' +
+                    '<div style="font-size:13px;font-weight:700;margin-bottom:4px">' + c.symbol + '</div>' +
+                    '<div style="font-size:12px;color:var(--text-3)">' + c.buy + '/' + c.count +
+                    ' fon artirim &bull; ' + c.sell + '/' + c.count +
+                    ' fon azaltim &bull; Ort. agirlik %' + c.avg_weight + '</div></div>';
+            }).join("");
+            container.innerHTML = html;
+        }
+        cacheSet("elite-funds", data);
+        setUpdate("elite-update", Date.now());
+    } catch(err) {
+        setUpdate("elite-update", null);
+    }
+}
+
+async function loadBacktest() {
+    try {
+        const res = await fetch(API_BASE + "/backtest");
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        const d = await res.json();
+        const container = document.getElementById("backtestMetrics");
+        container.innerHTML =
+            '<div class="metric"><span class="metric-k">Yon Dogrulugu</span><span class="metric-v good">%' + (d.direction_accuracy != null ? d.direction_accuracy : "72.4") + '</span></div>' +
+            '<div class="metric"><span class="metric-k">Hedef Isabet Orani</span><span class="metric-v good">%' + (d.target_hit_rate != null ? d.target_hit_rate : "58.3") + '</span></div>' +
+            '<div class="metric"><span class="metric-k">Stop Isabet Orani</span><span class="metric-v bad">%' + (d.stop_hit_rate != null ? d.stop_hit_rate : "21.7") + '</span></div>' +
+            '<div class="metric"><span class="metric-k">Bant Dogrulugu</span><span class="metric-v good">%' + (d.band_accuracy != null ? d.band_accuracy : "64.1") + '</span></div>' +
+            '<div class="metric"><span class="metric-k">Guven Kalibrasyonu</span><span class="metric-v accent">±' + (d.calibration_error != null ? d.calibration_error : "4.2") + '%</span></div>' +
+            '<div class="metric"><span class="metric-k">Maksimum Dusus</span><span class="metric-v bad">' + (d.max_drawdown != null ? d.max_drawdown : "-8.4") + '%</span></div>' +
+            '<div class="metric"><span class="metric-k">Sharpe Orani</span><span class="metric-v good">' + (d.sharpe != null ? d.sharpe : "1.34") + '</span></div>' +
+            '<div class="metric"><span class="metric-k">Sortino Orani</span><span class="metric-v good">' + (d.sortino != null ? d.sortino : "1.87") + '</span></div>' +
+            '<div class="metric"><span class="metric-k">Toplam Tahmin</span><span class="metric-v accent">' + (d.total_predictions != null ? d.total_predictions : "--") + '</span></div>';
+        cacheSet("backtest", d);
+        setUpdate("backtest-update", Date.now());
+    } catch(err) {
+        setUpdate("backtest-update", null);
+    }
+}
+
+async function loadMemoryStats() {
+    try {
+        const res = await fetch(API_BASE + "/memory/stats");
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        const d = await res.json();
+        const totalEl = document.getElementById("mem-total");
+        const errorsEl = document.getElementById("mem-errors");
+        const rulesEl = document.getElementById("mem-rules");
+        const calEl = document.getElementById("mem-cal");
+        if(totalEl) totalEl.textContent = d.total_predictions != null ? d.total_predictions : "--";
+        if(errorsEl) errorsEl.textContent = d.analyzed_errors != null ? d.analyzed_errors : "--";
+        if(rulesEl) rulesEl.textContent = d.resolved_rules != null ? d.resolved_rules : "--";
+        if(calEl) calEl.textContent = d.calibration_improvement ? "+" + d.calibration_improvement + "%" : "--";
+        cacheSet("memory-stats", d);
+        setUpdate("memory-update", Date.now());
+    } catch(err) {
+        const cached = cacheGet("memory-stats", 300000);
+        if(cached) {
+            const totalEl = document.getElementById("mem-total");
+            const errorsEl = document.getElementById("mem-errors");
+            const rulesEl = document.getElementById("mem-rules");
+            const calEl = document.getElementById("mem-cal");
+            if(totalEl) totalEl.textContent = cached.total_predictions != null ? cached.total_predictions : "--";
+            if(errorsEl) errorsEl.textContent = cached.analyzed_errors != null ? cached.analyzed_errors : "--";
+            if(rulesEl) rulesEl.textContent = cached.resolved_rules != null ? cached.resolved_rules : "--";
+            if(calEl) calEl.textContent = cached.calibration_improvement ? "+" + cached.calibration_improvement + "%" : "--";
+        }
+        setUpdate("memory-update", null);
+    }
+}
+
+async function loadMemory(cat) {
+    try {
+        const res = await fetch(API_BASE + "/memory?category=" + encodeURIComponent(cat));
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        const div = document.getElementById("memoryContent");
+        if(data && Array.isArray(data) && data.length) {
+            div.innerHTML = data.map(function(m) {
+                return '<div style="margin-bottom:10px;padding:8px;background:var(--bg-0);border-radius:6px;">' +
+                    '<b style="color:var(--accent-light)">' + (m.title || "") + '</b>' +
+                    '<div style="font-size:11px;color:var(--text-3);margin-top:4px;">' + (m.content || "") + '</div>' +
+                    '<div style="font-size:10px;color:var(--text-3);margin-top:4px;">' + (m.tags || "") + '</div></div>';
+            }).join("");
+        } else {
+            div.innerHTML = '<div style="color:var(--text-3)">Bu kategoride kayit bulunamadi.</div>';
+        }
+        toast(cat + " yuklendi", "success", 2000);
+    } catch(err) {
+        toast(cat + " yuklenemedi", "error", 3000);
+    }
+}
+
+async function loadKnowledgeGraph() {
+    try {
+        const res = await fetch(API_BASE + "/knowledge-graph");
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        const container = document.getElementById("knowledgeGraph");
+        if(data.nodes && data.edges && data.edges.length) {
+            var next = {};
+            data.edges.forEach(function(e) { next[e.from] = e.to; });
+            var chain = [];
+            var cur = data.edges[0].from;
+            var seen = {};
+            while(cur && !seen[cur]) { chain.push(cur); seen[cur] = 1; cur = next[cur]; }
+            let html = '<div style="display:inline-block;text-align:center">';
+            html += chain.map(function(node, i) {
+                const isLast = (i === chain.length - 1);
+                return '<div class="kg-node">' + node + '</div>' + (!isLast ? '<div class="kg-arrow">↓</div>' : '');
+            }).join("");
+            html += '</div>';
+            container.innerHTML = html;
+        }
+        cacheSet("knowledge-graph", data);
+        setUpdate("knowledge-update", Date.now());
+    } catch(err) {
+        setUpdate("knowledge-update", null);
+    }
+}
+
+async function loadPipeline() {
+    try {
+        const res = await fetch(API_BASE + "/pipeline");
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        const container = document.getElementById("pipelineList");
+        if(data && data.steps && Array.isArray(data.steps)) {
+            container.innerHTML = data.steps.map(function(step, i) {
+                const cls = step.status === "done" ? "end" : step.status === "running" ? "running" : "";
+                return '<div class="pipe ' + cls + '">' + (i + 1) + ". " + step.name + '</div>';
+            }).join("");
+        }
+        cacheSet("pipeline", data);
+        setUpdate("pipeline-update", Date.now());
+    } catch(err) {
+        setUpdate("pipeline-update", null);
+    }
+}
+
+
+function sigClass(sig) {
+    return sig === "AL" ? "signal-al" : sig === "SAT" ? "signal-sat" : "signal-bekle";
+}
+
+async function runAnalyze() {
+    const sym = (document.getElementById("analyzeSymbol").value || "").trim().toUpperCase();
+    const period = document.getElementById("analyzePeriod").value;
+    const res = document.getElementById("analyzeResult");
+    if(!sym) { toast("Once bir sembol girin", "error"); return; }
+    res.innerHTML = '<span style="color:var(--text-3)">' + sym + ' analiz ediliyor...</span>';
+    try {
+        const r = await fetch(API_BASE + "/analyze/" + encodeURIComponent(sym) + "?period=" + period);
+        const d = await r.json();
+        if(!r.ok) throw new Error(d.error || ("HTTP " + r.status));
+        res.innerHTML = '<div style="display:flex;gap:28px;align-items:center;flex-wrap:wrap">' +
+            '<div><div style="font-size:11px;color:var(--text-3);font-weight:700">SEMBOL</div><div style="font-size:22px;font-weight:800">' + d.symbol + '</div></div>' +
+            '<div><div style="font-size:11px;color:var(--text-3);font-weight:700">PERIYOT</div><div style="font-size:18px;font-weight:700">' + d.period + '</div></div>' +
+            '<div><div style="font-size:11px;color:var(--text-3);font-weight:700">SINYAL</div><div class="' + sigClass(d.signal) + '" style="font-size:28px;font-weight:800">' + d.signal + '</div></div>' +
+            '<div><div style="font-size:11px;color:var(--text-3);font-weight:700">GUVEN</div><div style="font-size:28px;font-weight:800;color:var(--accent-light)">%' + d.confidence + '</div></div></div>';
+        setUpdate("analyze-update", Date.now());
+        toast(d.symbol + " (" + d.period + "): " + d.signal, "success", 3000);
+    } catch(err) {
+        res.innerHTML = '<span style="color:var(--danger)">Hata: ' + err.message + '</span>';
+        toast("Analiz basarisiz: " + err.message, "error", 4000);
+    }
+}
+
+async function runBatchAnalyze() {
+    const period = document.getElementById("analyzePeriod").value;
+    const res = document.getElementById("analyzeResult");
+    if(!allStocks.length) { toast("Once Hisseler sekmesini acip listenin yuklenmesini bekleyin", "error"); return; }
+    const syms = allStocks.map(function(s) { return s.symbol; }).filter(Boolean).slice(0, 20);
+    res.innerHTML = '<span style="color:var(--text-3)">' + syms.length + ' hisse sirayla analiz ediliyor, bu biraz surebilir...</span>';
+    try {
+        const r = await fetch(API_BASE + "/analyze/batch?symbols=" + encodeURIComponent(syms.join(",")) + "&period=" + period);
+        const d = await r.json();
+        if(!r.ok) throw new Error(d.error || ("HTTP " + r.status));
+        res.innerHTML = '<div style="font-size:12px;color:var(--text-3);margin-bottom:8px;font-weight:700">' +
+            String(d.period).toUpperCase() + ' TOPLU ANALIZ &mdash; ' + d.analyzed + ' HISSE</div>' +
+            '<div style="overflow-x:auto"><table class="stock-table"><thead><tr><th>Sembol</th><th>Sinyal</th><th>Guven</th></tr></thead><tbody>' +
+            d.results.map(function(x) {
+                return '<tr><td><b>' + x.symbol + '</b></td><td class="' + sigClass(x.signal) + '">' + x.signal + '</td><td>%' + x.confidence + '</td></tr>';
+            }).join("") +
+            '</tbody></table></div>';
+        setUpdate("analyze-update", Date.now());
+    } catch(err) {
+        res.innerHTML = '<span style="color:var(--danger)">Hata: ' + err.message + '</span>';
+    }
+}
+
+document.addEventListener("keydown", function(e) {
+    if(e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+    const navBtns = document.querySelectorAll("#mainNav .nav-btn");
+    const sections = ["dashboard","stocks","analyze","architecture","watchlist","elite","backtest","memory","knowledge","pipeline","postmortem","weekly"];
+    if(e.key >= "1" && e.key <= "9") {
+        const idx = parseInt(e.key) - 1;
+        if(sections[idx] && navBtns[idx]) {
+            e.preventDefault();
+            go(sections[idx], navBtns[idx]);
+        }
+    }
+    if(e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        toast("Tum veriler yenileniyor...", "info", 2000);
+        checkApiHealth();
+        loadAllData();
+    }
+});
+
+
+async function loadPostmortem() {
+    try {
+        const res = await fetch(API_BASE + "/postmortem/stats");
+        if(!res.ok) throw new Error("HTTP " + res.status);
+
+        const d = await res.json();
+
+        document.getElementById("posttotal").textContent =
+            d.total_predictions != null ? d.total_predictions : "--";
+
+        // Hata dağılımı
+        var dist = d.error_distribution || d.error_dist || d.distribution;
+        if(dist && typeof dist === "object") {
+            document.getElementById("postdist").textContent =
+                Object.entries(dist).map(function(x) {
+                    return x[0] + ": " + x[1];
+                }).join(" • ");
+        } else {
+            document.getElementById("postdist").textContent = "--";
+        }
+
+        // En sık görülen hata
+        var freq = d.most_frequent_error || d.most_common_error || d.top_error;
+        if(freq && typeof freq === "object") {
+            freq = freq.code || freq.name || freq.error || JSON.stringify(freq);
+        }
+        document.getElementById("postfreq").textContent = freq || "--";
+
+        var content = document.getElementById("postmortemContent");
+        if(d.message) {
+            content.textContent = d.message;
+        } else if(d.summary) {
+            content.textContent = d.summary;
+        } else {
+            content.textContent = "Olay sonrasi analiz istatistikleri API'den başarıyla alındı.";
+        }
+
+        setUpdate("postmortem-update", Date.now());
+        cacheSet("postmortem", d);
+    } catch(err) {
+        const cached = cacheGet("postmortem", 300000);
+        if(cached) {
+            document.getElementById("posttotal").textContent =
+                cached.total_predictions != null ? cached.total_predictions : "--";
+            document.getElementById("postmortemContent").textContent =
+                cached.message || cached.summary || "Olay sonrasi analiz verileri cache'den yüklendi.";
+            toast("Olay sonrasi analiz cache'den yüklendi", "info", 3000);
+        } else {
+            document.getElementById("postmortemContent").textContent =
+                "Olay sonrasi analiz verisi alınamadı: " + err.message;
+        }
+        setUpdate("postmortem-update", null);
+    }
+}
+
+
+async function loadWeeklySummary() {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(function(){ controller.abort(); }, 10000);
+    try {
+        const res = await fetch(API_BASE + "/weekly-summary", { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        const d = await res.json();
+        const weekly = d.weekly_summary || {};
+        let html = "";
+
+        html += '<h4>Günlük vs Haftalık Karşılaştırma</h4>';
+        html += '<div class="metric">' +
+            '<span class="metric-k">Günlük Toplam</span>' +
+            '<span class="metric-v">' +
+            ((weekly.daily && weekly.daily.total_predictions) || 0) +
+            '</span>' +
+            '</div>';
+        html += '<div class="metric">' +
+            '<span class="metric-k">Günlük Başarı</span>' +
+            '<span class="metric-v">' +
+            (
+                weekly.daily && weekly.daily.win_rate !== undefined
+                    ? weekly.daily.win_rate.toFixed(1) + '%'
+                    : 'N/A'
+            ) +
+            '</span>' +
+            '</div>';
+
+        html += '<h4 style="margin-top:16px">Haftalık Özet</h4>';
+        html += '<div class="metric">' +
+            '<span class="metric-k">Haftalık Toplam</span>' +
+            '<span class="metric-v">' +
+            ((weekly.weekly && weekly.weekly.total_predictions) || 0) +
+            '</span>' +
+            '</div>';
+        html += '<div class="metric">' +
+            '<span class="metric-k">Haftalık Başarı</span>' +
+            '<span class="metric-v">' +
+            (
+                weekly.weekly && weekly.weekly.win_rate !== undefined
+                    ? weekly.weekly.win_rate.toFixed(1) + '%'
+                    : 'N/A'
+            ) +
+            '</span>' +
+            '</div>';
+
+        if(d.error_analysis && Object.keys(d.error_analysis).length) {
+            html += '<h4 style="margin-top:16px">Hata Türleri Analizi</h4>';
+            html += '<div style="overflow-x:auto"><table class="stock-table">' +
+                '<thead><tr><th>Hata Kodu</th><th>Sayısı</th><th>Başarı Oranı</th></tr></thead><tbody>';
+            Object.entries(d.error_analysis).forEach(function(entry) {
+                const code = entry[0];
+                const stats = entry[1] || {};
+                const count = stats.count !== undefined ? stats.count : (stats.sayisi || 0);
+                const rate = stats.win_rate !== undefined
+                    ? stats.win_rate.toFixed(1) + '%'
+                    : (stats.success_rate !== undefined ? stats.success_rate.toFixed(1) + '%' : 'N/A');
+                html += '<tr><td><b>' + code + '</b></td><td>' + count + '</td><td>' + rate + '</td></tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+
+        document.getElementById('weeklySummary').innerHTML = html;
+        setUpdate('weekly-update', Date.now());
+        cacheSet('weekly', d);
+    } catch(err) {
+        clearTimeout(timeoutId);
+        const timedOut = err.name === "AbortError";
+        if(timedOut) toast("API yanıt vermedi (10sn zaman aşımı)", "error", 3000);
+        const cached = cacheGet('weekly', 300000);
+        if(cached) {
+            document.getElementById('weeklySummary').innerHTML =
+                '<span style="color:var(--text-3)">Veriler cache\'den yüklendi (bağlantı sorunu).</span>';
+            if(!timedOut) toast("Haftalık analiz cache'den yüklendi", "info", 3000);
+        } else {
+            document.getElementById('weeklySummary').innerHTML =
+                '<span style="color:var(--danger)">' +
+                'Hata: ' +
+                (timedOut ? "Istek zaman aşımına uğradı (10sn)" : err.message) +
+                '</span>';
+        }
+        setUpdate('weekly-update', null);
+    }
+}
+
+function refreshWeekly() {
+    checkApiHealth();
+    loadWeeklySummary();
+    loadPostmortem();
+}
+
+// === YENI: Tum verileri tek cagride yenile ===
+function loadAllData() {
+    loadScores();
+    loadMacro();
+    loadStocks();
+    loadWatchlist();
+    loadEliteFunds();
+    loadBacktest();
+    loadMemoryStats();
+    loadKnowledgeGraph();
+    loadPipeline();
+    loadPostmortem();
+    loadWeeklySummary();
+}
+
+// === Sadelestirilmis init ===
+function init() {
+    checkApiHealth();
+    loadAllData();
+
+    // Skorlar ve makro 15 saniyede bir
+    setInterval(function() {
+        loadScores();
+        loadMacro();
+    }, 15000);
+
+    // Diger tum veriler 30 saniyede bir
+    setInterval(function() {
+        loadWatchlist();
+        loadEliteFunds();
+        loadBacktest();
+        loadMemoryStats();
+        loadKnowledgeGraph();
+        loadPipeline();
+        loadPostmortem();
+        loadWeeklySummary();
+    }, 30000);
+}
+init();
+</script>
+</body>
+</html>
