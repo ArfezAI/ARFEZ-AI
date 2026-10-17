@@ -1,25 +1,55 @@
 """
-ARFEZ AI - Ornek Veri Doldurucu
-ONCE yukaridaki SQL'i calistir, SONRA bunu calistir.
+ARFEZ AI - Ornek Veri Doldurucu (yalnizca DEVELOPMENT / ARFEZ_DEV)
+
+UYARI:
+- Bu script sadece ARFEZ_ENV=development ve ARFEZ_SEED_DATABASE=ARFEZ_DEV iken calisir.
+- Uretilen tum fiyat/skor/sinyaller RASTGELE TEST VERISIDIR; canli yatirim analizi degildir.
+- Gercek fiyat, adil deger ve yatirim sinyalleri data_collector.py,
+  fair_value_engine.py ve canli veri akisindan gelmelidir.
+- Calistirmadan once: ARFEZ_DB_PASSWORD ortam degiskenini tanimla.
 """
+import os
 import pyodbc
 from datetime import datetime, timedelta
 import random
 import time
 
+# ---------------------------------------------------------------------------
+# 1. ADIM - Guvenli baglanti
+# ---------------------------------------------------------------------------
+APP_ENV = os.getenv("ARFEZ_ENV", "development").strip().lower()
+if APP_ENV != "development":
+    raise RuntimeError(
+        "seed_data.py yalnizca development ortaminda calistirilabilir."
+    )
+
+DB_NAME = os.getenv("ARFEZ_SEED_DATABASE", "ARFEZ_DEV").strip()
+if DB_NAME != "ARFEZ_DEV":
+    raise RuntimeError(
+        "Ornek veri icin yalnizca ARFEZ_DEV veritabani kullanilabilir."
+    )
+
 CONN_STR = (
     "DRIVER={ODBC Driver 17 for SQL Server};"
     "SERVER=DESKTOP-L7INTLS,1433;"
-    "DATABASE=ARFEZ;"
+    f"DATABASE={DB_NAME};"
     "UID=sa;"
-    "PWD=2209;"
+    f"PWD={os.environ.get('ARFEZ_DB_PASSWORD', '')};"
     "TrustServerCertificate=yes;"
 )
 
+
 def get_db():
+    if APP_ENV != "development" or DB_NAME != "ARFEZ_DEV":
+        raise RuntimeError("Guvenlik kontrolu basarisiz.")
+    if not os.environ.get("ARFEZ_DB_PASSWORD"):
+        raise RuntimeError("ARFEZ_DB_PASSWORD ortam degiskeni tanimli degil.")
     return pyodbc.connect(CONN_STR)
 
 
+# ---------------------------------------------------------------------------
+# Yardimci
+# ---------------------------------------------------------------------------
 def run(cursor, sql, params=None, max_retries=5):
     """Deadlock (1205/40001) durumunda otomatik tekrar dener."""
     for attempt in range(max_retries):
@@ -40,6 +70,9 @@ def run(cursor, sql, params=None, max_retries=5):
     raise RuntimeError("Deadlock {} deneme sonrasinda cozulemedi".format(max_retries))
 
 
+# ---------------------------------------------------------------------------
+# 2. ADIM - seed_stocks: DELETE kaldirildi, IF NOT EXISTS eklendi
+# ---------------------------------------------------------------------------
 def seed_stocks(cursor):
     stocks = [
         ('ABT', 'ABBOTT LABORATORIES', 'Healthcare'),
@@ -271,17 +304,58 @@ def seed_stocks(cursor):
         ('ZETA', 'ZETA GLOBAL HOLDINGS CORP', 'Technology'),
         ('ZTS', 'ZOETIS INC', 'Healthcare'),
     ]
-    run(cursor, "DELETE FROM daily_scores WITH (TABLOCK)")
-    run(cursor, "DELETE FROM stocks WITH (TABLOCK)")
-    for s in stocks:
-        run(cursor, "INSERT INTO stocks (symbol, name, sector) VALUES (?, ?, ?)", s)
-    print("[OK] stocks: {} hisse eklendi".format(len(stocks)))
 
+    inserted = 0
+    skipped = 0
+    for s in stocks:
+        # 2. ADIM: Toplu DELETE yok; yalnizca olmayan sembolleri ekle.
+        # NOT: Bu yaklasim mevcut sembollerin name/sector bilgisini GUNCELLEMEZ.
+        before = cursor.rowcount
+        run(
+            cursor,
+            """
+            IF NOT EXISTS (SELECT 1 FROM stocks WHERE symbol = ?)
+                INSERT INTO stocks (symbol, name, sector)
+                VALUES (?, ?, ?)
+            """,
+            (s[0], s[0], s[1], s[2]),
+        )
+        # rowcount INSERT olduysa +1 doner, olmadiysa -1/0 olabilir; kesin sayim icin
+        # basitce ikinci bir sorgu ile kontrol edilebilir ama performans icin atliyoruz.
+    print("[OK] stocks: {} sembol kontrol edildi (mevcut olanlara dokunulmadi)".format(len(stocks)))
+
+
+# ---------------------------------------------------------------------------
+# 3. ADIM - seed_daily_scores: DELETE kaldirildi, NOT EXISTS ile mükerrer engellendi
+# ---------------------------------------------------------------------------
 def seed_daily_scores(cursor):
-    symbols = ['ABT', 'AKR', 'AAMI', 'ACMR', 'ADEA', 'ADBE', 'AMD', 'AKTS', 'ALMR', 'ALLY', 'GOOGL', 'AMZN', 'AMTM', 'AS', 'AEP', 'AHR', 'AIG', 'ANDG', 'APGE', 'APO', 'AAPL', 'AADX', 'ADM', 'ACA', 'ARES', 'ATI', 'TEAM', 'AVLN', 'BKU', 'BRK-B', 'BGC', 'BILL', 'TECH', 'BX', 'OBDC', 'OWL', 'BOTZ', 'BWA', 'BHF', 'AVGO', 'BG', 'CZR', 'CCJ', 'CEPV', 'COF', 'CTRE', 'CG', 'CRS', 'CPRX', 'CX', 'CBRS', 'GTLS', 'CB', 'CFG', 'NET', 'CME', 'CMS', 'KO', 'CEG', 'CNM', 'CORZ', 'CRBG', 'CRWV', 'CPNG', 'CRH', 'DDOG', 'DLR', 'DBRG', 'DIS', 'D', 'DASH', 'DPC', 'ENRD', 'EA', 'LLY', 'EME', 'ETR', 'EROC', 'ESPR', 'ETSY', 'ES', 'EVGO', 'FVR', 'FIGR', 'FSLR', 'FE', 'FBC', 'FPS', 'FCX', 'GLXY', 'GFL', 'GBTG', 'SJW', 'Hawk', 'COAG', 'HTZ', 'HONA', 'HON', 'HUBG', 'HUM', 'HUN', 'IDA', 'PI', 'INGM', 'INNO', 'INTC', 'IBKR', 'EMXC', 'MUB', 'ITRI', 'ITT', 'J', 'JAN', 'JNJ', 'JPM', 'KLRA', 'KARD', 'KEEL', 'KVUE', 'KRG', 'KKR', 'KDK', 'KWEB', 'LGN', 'LIFT', 'LINC', 'LIN', 'LCID', 'MAC', 'MASI', 'MRVL', 'MTZ', 'MA', 'MTRN', 'MCD', 'MDLN', 'META', 'MCB', 'MGEE', 'MGM', 'MCHP', 'MU', 'MSFT', 'MFIC', 'MIDD', 'MS', 'NATL', 'NBIS', 'NPI', 'NFLX', 'NOC', 'NUVL', 'NVDA', 'ON', 'PZZA', 'PAYO', 'PM', 'PNFP', 'PONY', 'POR', 'PPL', 'PRIM', 'PGR', 'PEG', 'QNTM', 'QXO', 'RDNT', 'USAR', 'RBC', 'RDDT', 'ROKU', 'RUSHA', 'RSI', 'SPGI', 'XLF', 'SRE', 'NOW', 'SNAI', 'SILA', 'SITM', 'SW', 'SNOW', 'SOLV', 'SGI', 'SFST', 'SPSB', 'SARO', 'SPY', 'STLA', 'STM', 'SUNB', 'RUN', 'SMCI', 'TE', 'TSM', 'TLN', 'TALK', 'TMHC', 'TNC', 'TEX', 'TSLA', 'TXN', 'TKR', 'TKO', 'BLD', 'TPG', 'UBER', 'ULS', 'UNH', 'VRNS', 'VRSK', 'VZ', 'VSGN', 'VSH', 'VST', 'VSEC', 'WMT', 'WBD', 'WBS', 'WEC', 'WIX', 'WWD', 'XEL', 'XE', 'YSWY', 'YSS', 'ZETA', 'ZTS']
+    symbols = [
+        'ABT', 'AKR', 'AAMI', 'ACMR', 'ADEA', 'ADBE', 'AMD', 'AKTS', 'ALMR', 'ALLY',
+        'GOOGL', 'AMZN', 'AMTM', 'AS', 'AEP', 'AHR', 'AIG', 'ANDG', 'APGE', 'APO',
+        'AAPL', 'AADX', 'ADM', 'ACA', 'ARES', 'ATI', 'TEAM', 'AVLN', 'BKU', 'BRK-B',
+        'BGC', 'BILL', 'TECH', 'BX', 'OBDC', 'OWL', 'BOTZ', 'BWA', 'BHF', 'AVGO',
+        'BG', 'CZR', 'CCJ', 'CEPV', 'COF', 'CTRE', 'CG', 'CRS', 'CPRX', 'CX',
+        'CBRS', 'GTLS', 'CB', 'CFG', 'NET', 'CME', 'CMS', 'KO', 'CEG', 'CNM',
+        'CORZ', 'CRBG', 'CRWV', 'CPNG', 'CRH', 'DDOG', 'DLR', 'DBRG', 'DIS', 'D',
+        'DASH', 'DPC', 'ENRD', 'EA', 'LLY', 'EME', 'ETR', 'EROC', 'ESPR', 'ETSY',
+        'ES', 'EVGO', 'FVR', 'FIGR', 'FSLR', 'FE', 'FBC', 'FPS', 'FCX', 'GLXY',
+        'GFL', 'GBTG', 'SJW', 'Hawk', 'COAG', 'HTZ', 'HONA', 'HON', 'HUBG', 'HUM',
+        'HUN', 'IDA', 'PI', 'INGM', 'INNO', 'INTC', 'IBKR', 'EMXC', 'MUB', 'ITRI',
+        'ITT', 'J', 'JAN', 'JNJ', 'JPM', 'KLRA', 'KARD', 'KEEL', 'KVUE', 'KRG',
+        'KKR', 'KDK', 'KWEB', 'LGN', 'LIFT', 'LINC', 'LIN', 'LCID', 'MAC', 'MASI',
+        'MRVL', 'MTZ', 'MA', 'MTRN', 'MCD', 'MDLN', 'META', 'MCB', 'MGEE', 'MGM',
+        'MCHP', 'MU', 'MSFT', 'MFIC', 'MIDD', 'MS', 'NATL', 'NBIS', 'NPI', 'NFLX',
+        'NOC', 'NUVL', 'NVDA', 'ON', 'PZZA', 'PAYO', 'PM', 'PNFP', 'PONY', 'POR',
+        'PPL', 'PRIM', 'PGR', 'PEG', 'QNTM', 'QXO', 'RDNT', 'USAR', 'RBC', 'RDDT',
+        'ROKU', 'RUSHA', 'RSI', 'SPGI', 'XLF', 'SRE', 'NOW', 'SNAI', 'SILA', 'SITM',
+        'SW', 'SNOW', 'SOLV', 'SGI', 'SFST', 'SPSB', 'SARO', 'SPY', 'STLA', 'STM',
+        'SUNB', 'RUN', 'SMCI', 'TE', 'TSM', 'TLN', 'TALK', 'TMHC', 'TNC', 'TEX',
+        'TSLA', 'TXN', 'TKR', 'TKO', 'BLD', 'TPG', 'UBER', 'ULS', 'UNH', 'VRNS',
+        'VRSK', 'VZ', 'VSGN', 'VSH', 'VST', 'VSEC', 'WMT', 'WBD', 'WBS', 'WEC',
+        'WIX', 'WWD', 'XEL', 'XE', 'YSWY', 'YSS', 'ZETA', 'ZTS',
+    ]
     today = datetime.now().strftime('%Y-%m-%d')
-    run(cursor, "DELETE FROM daily_scores WHERE date = ?", (today,))
-    
+
     for sym in symbols:
         arfez = random.randint(45, 98)
         final = min(arfez + random.randint(-10, 5), 100)
@@ -289,31 +363,50 @@ def seed_daily_scores(cursor):
         target = round(random.uniform(50, 500), 2)
         stop = round(target * 0.85, 2)
         expected = round((target - stop) / stop * 100, 1)
-        
-        run(cursor, """
-            INSERT INTO daily_scores (symbol, date, arfez_score, new_world, technical, fundamental, risk, confidence,
-            macro, valuation, capital_flow, theme, final_score, signal, target_price, stop_loss, expected_return)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (sym, today, arfez, random.randint(50,95), random.randint(40,90), random.randint(50,95),
-              random.randint(20,70), random.randint(60,99), random.randint(40,85), random.randint(50,90),
-              random.randint(45,88), random.randint(55,92), final, signal, target, stop, expected))
-    print("[OK] daily_scores: {} gunluk skor eklendi ({})".format(len(symbols), today))
 
+        run(cursor, """
+            IF NOT EXISTS (
+                SELECT 1 FROM daily_scores WHERE symbol = ? AND date = ?
+            )
+            INSERT INTO daily_scores
+                (symbol, date, arfez_score, new_world, technical, fundamental,
+                 risk, confidence, macro, valuation, capital_flow, theme,
+                 final_score, signal, target_price, stop_loss, expected_return)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            sym, today,
+            sym, today, arfez, random.randint(50, 95), random.randint(40, 90),
+            random.randint(50, 95), random.randint(20, 70), random.randint(60, 99),
+            random.randint(40, 85), random.randint(50, 90), random.randint(45, 88),
+            random.randint(55, 92), final, signal, target, stop, expected,
+        ))
+    print("[OK] daily_scores: {} sembol icin gunluk skor kontrol edildi ({})".format(len(symbols), today))
+
+
+# ---------------------------------------------------------------------------
+# 3. ADIM - seed_macro: DELETE kaldirildi, NOT EXISTS(date)
+# ---------------------------------------------------------------------------
 def seed_macro(cursor):
-    run(cursor, "DELETE FROM macro_data WITH (TABLOCK)")
     today = datetime.now().strftime('%Y-%m-%d')
     regimes = ["risk-on", "risk-off", "neutral", "bullish", "bearish"]
     run(cursor, """
+        IF NOT EXISTS (SELECT 1 FROM macro_data WHERE date = ?)
         INSERT INTO macro_data (date, vix, dxy, us10y, sp500, nasdaq, regime)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (today, round(random.uniform(14, 28), 2), round(random.uniform(100, 108), 2),
-          round(random.uniform(3.8, 4.8), 2), round(random.uniform(5500, 6100), 2),
-          round(random.uniform(17500, 19500), 2), random.choice(regimes)))
-    print("[OK] macro_data: 1 makro kaydi eklendi")
+    """, (
+        today,
+        today, round(random.uniform(14, 28), 2), round(random.uniform(100, 108), 2),
+        round(random.uniform(3.8, 4.8), 2), round(random.uniform(5500, 6100), 2),
+        round(random.uniform(17500, 19500), 2), random.choice(regimes),
+    ))
+    print("[OK] macro_data: bugunun makro kaydi kontrol edildi/eklendi")
 
+
+# ---------------------------------------------------------------------------
+# 3. ADIM - seed_pipeline: DELETE kaldirildi, NOT EXISTS(date, step_name)
+# ---------------------------------------------------------------------------
 def seed_pipeline(cursor):
     today = datetime.now().strftime('%Y-%m-%d')
-    run(cursor, "DELETE FROM pipeline_status WHERE date = ?", (today,))
     steps = [
         ("Makro Tarama", "done", "09:31"),
         ("Rejim Belirleme", "done", "09:32"),
@@ -324,18 +417,28 @@ def seed_pipeline(cursor):
         ("Options Analizi", "done", "09:55"),
         ("Risk Degerlendirmesi", "done", "10:00"),
         ("Confidence Kalibrasyonu", "done", "10:05"),
-        ("Final Decision", "done", "10:10")
+        ("Final Decision", "done", "10:10"),
     ]
     for s in steps:
-        run(cursor, "INSERT INTO pipeline_status (date, step_name, status, time) VALUES (?, ?, ?, ?)",
-                      (today, s[0], s[1], s[2]))
-    print("[OK] pipeline_status: 10 adim eklendi")
+        run(cursor, """
+            IF NOT EXISTS (
+                SELECT 1 FROM pipeline_status WHERE date = ? AND step_name = ?
+            )
+            INSERT INTO pipeline_status (date, step_name, status, time)
+            VALUES (?, ?, ?, ?)
+        """, (today, s[0], today, s[0], s[1], s[2]))
+    print("[OK] pipeline_status: 10 adim kontrol edildi/eklendi")
 
+
+# ---------------------------------------------------------------------------
+# 3. ADIM - seed_fund_holdings: DELETE kaldirildi, NOT EXISTS(fund, symbol, quarter)
+# ---------------------------------------------------------------------------
 def seed_fund_holdings(cursor):
-    run(cursor, "DELETE FROM fund_holdings WHERE quarter = '2026Q2'")
-    funds = ["Buffett", "Soros", "Druckenmiller", "Tepper", "Ackman", "Tiger Global", "Coatue", "Bridgewater", "ARK", "Viking"]
+    funds = ["Buffett", "Soros", "Druckenmiller", "Tepper", "Ackman",
+             "Tiger Global", "Coatue", "Bridgewater", "ARK", "Viking"]
     symbols = ["NVDA", "PLTR", "MSFT", "AAPL", "TSLA", "AMD", "META", "AMZN", "GOOGL", "AVGO"]
-    
+    quarter = "2026Q2"
+
     count = 0
     for fund in funds:
         picks = random.sample(symbols, random.randint(3, 7))
@@ -343,18 +446,25 @@ def seed_fund_holdings(cursor):
             weight = round(random.uniform(1.5, 8.5), 2)
             change = round(random.uniform(-15, 25), 2)
             run(cursor, """
+                IF NOT EXISTS (
+                    SELECT 1 FROM fund_holdings
+                    WHERE fund_name = ? AND symbol = ? AND quarter = ?
+                )
                 INSERT INTO fund_holdings (fund_name, symbol, weight, change_qoq, quarter)
-                VALUES (?, ?, ?, ?, '2026Q2')
-            """, (fund, sym, weight, change))
+                VALUES (?, ?, ?, ?, ?)
+            """, (fund, sym, quarter, fund, sym, weight, change, quarter))
             count += 1
-    print("[OK] fund_holdings: {} fon, toplam {} pozisyon eklendi".format(len(funds), count))
+    print("[OK] fund_holdings: {} fon, {} pozisyon kontrol edildi ({})".format(
+        len(funds), count, quarter))
 
+
+# ---------------------------------------------------------------------------
+# 3. ADIM - seed_predictions: DELETE kaldirildi, NOT EXISTS ile mükerrer azaltildi
+# ---------------------------------------------------------------------------
 def seed_predictions(cursor):
-    run(cursor, "DELETE FROM predictions WITH (TABLOCK)")
-
     symbols = ["NVDA", "PLTR", "MSFT", "AAPL", "TSLA"]
 
-    # Post-Mortem icin baslangic hata dagilimi
+    # Post-Mortem icin baslangic hata dagilimi (toplam 38, kalan 12 hatasiz)
     initial_errors = {
         "M1": 5,   # Makro hatasi
         "H1": 3,   # Haber hatasi
@@ -362,95 +472,12 @@ def seed_predictions(cursor):
         "T1": 10,  # Teknik hatasi
         "R1": 8,   # Rejim hatasi
         "B1": 3,   # Band hatasi
-        "C1": 7    # Cross-Asset hatasi
+        "C1": 7,   # Cross-Asset hatasi
     }
 
-    # Hata kodlarinin toplami 38, kalan 12 kayit hatasiz olacak.
-    seeded_count = 0
+    inserted = 0
 
     for error_code, count in initial_errors.items():
         for _ in range(count):
             sym = random.choice(symbols)
-            date = (datetime.now() - timedelta(days=random.randint(1, 90))).strftime("%Y-%m-%d")
-            signal = random.choice(["AL", "SAT", "BEKLE"])
-            pred_return = round(random.uniform(-5, 15), 2)
-            actual = round(pred_return + random.uniform(-8, 8), 2)
-            target_hit = 1 if actual >= pred_return * 0.8 else 0
-            stop_hit = 1 if actual < -5 else 0
-
-            run(cursor, """
-                INSERT INTO predictions
-                (symbol, date, prediction_signal, predicted_return, actual_return,
-                 target_hit, stop_hit, error_code)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (sym, date, signal, pred_return, actual,
-                  target_hit, stop_hit, error_code))
-            seeded_count += 1
-
-    # Toplam 50 tahmini tamamlamak icin 12 hatasiz kayit ekle.
-    for _ in range(50 - seeded_count):
-        sym = random.choice(symbols)
-        date = (datetime.now() - timedelta(days=random.randint(1, 90))).strftime("%Y-%m-%d")
-        signal = random.choice(["AL", "SAT", "BEKLE"])
-        pred_return = round(random.uniform(-5, 15), 2)
-        actual = round(pred_return + random.uniform(-8, 8), 2)
-        target_hit = 1 if actual >= pred_return * 0.8 else 0
-        stop_hit = 1 if actual < -5 else 0
-
-        run(cursor, """
-            INSERT INTO predictions
-            (symbol, date, prediction_signal, predicted_return, actual_return,
-             target_hit, stop_hit, error_code)
-            VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-        """, (sym, date, signal, pred_return, actual,
-              target_hit, stop_hit))
-        seeded_count += 1
-
-    print("[OK] predictions: {} tahmin eklendi (Post-Mortem hata dagilimi dahil)".format(seeded_count))
-
-def seed_memory_logs(cursor):
-    run(cursor, "DELETE FROM memory_logs WITH (TABLOCK)")
-    logs = [
-        ("companies", "NVDA Profili", "NVIDIA, AI devriminin merkezinde. Data center gelirleri yuzde 400 artti.", "AI,GPU,DataCenter"),
-        ("mistakes", "TSLA Hatasi", "Makro rejim degisikligini gormezden geldik. VIX 25+ iken AL sinyali urettik.", "M1,T1"),
-        ("patterns", "Earnings Gap", "EPS beklentisini yuzde 20 asan hisseler 3 gun icinde yuzde 8 ortalama geri cekilme yapiyor.", "Earnings,Volatility"),
-        ("macro", "FED Pivot", "25bps indirim sonrasi 30 gun icinde tech sektoru ortalama yuzde 12 yukseliyor.", "FED,InterestRate"),
-        ("thesis", "AI Altyapisi", "GPU -> HBM -> TSMC -> ASML zinciri 2026'da yuzde 35 buyume bekleniyor.", "AI,Semiconductor"),
-    ]
-    for log in logs:
-        run(cursor, """
-            INSERT INTO memory_logs (category, title, content, tags, created_at)
-            VALUES (?, ?, ?, ?, GETDATE())
-        """, log)
-    print("[OK] memory_logs: {} kayit eklendi".format(len(logs)))
-
-def main():
-    print("=" * 60)
-    print("ARFEZ AI - Ornek Veri Doldurucu")
-    print("=" * 60)
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    try:
-        seed_stocks(cursor)
-        seed_daily_scores(cursor)
-        seed_macro(cursor)
-        seed_pipeline(cursor)
-        seed_fund_holdings(cursor)
-        seed_predictions(cursor)
-        seed_memory_logs(cursor)
-        conn.commit()
-        print("=" * 60)
-        print("TUM TABLOLAR BASARIYLA DOLDURULDU!")
-        print("Simdi http://127.0.0.1:5000 adresine git.")
-        print("=" * 60)
-    except Exception as e:
-        print("[HATA] {}".format(e))
-        conn.rollback()
-        raise
-    finally:
-        cursor.close()
-        conn.close()
-
-if __name__ == '__main__':
-    main()
+            date = (datetime.now() - timedelta(days=random.randint(1, 90))).strftime("%Y-%m-%
