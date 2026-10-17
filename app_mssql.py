@@ -231,16 +231,24 @@ def stocks():
             if not rows and YFINANCE_OK:
                 return fetch_live_stocks()
 
+            
             result = []
             for r in rows:
+
                 result.append({
-                    "symbol": r['symbol'], "name": r['name'], "sector": r['sector'],
-                    "arfez_score": r.get('arfez_score') or 0,
-                    "final_score": r.get('final_score') or 0,
-                    "signal": r.get('signal') or 'BEKLE',
-                    "target": r.get('target_price'),
-                    "stop": r.get('stop_loss'),
-                    "expected_return": r.get('expected_return')
+                    "symbol": sym,
+                    "name": info.get('longName', sym),
+                    "sector": info.get('sector', 'Unknown'),
+                    "arfez_score": 50,
+                    "final_score": 50,
+                    "signal": "BEKLE",
+                    "target": None,
+                    "stop": None,
+                    "expected_return": change,
+
+                    # Yeni alanlar
+                    "current_price": price,
+                    "fair_value": None
                 })
             return jsonify(result)
     except pyodbc.Error as e:
