@@ -59,7 +59,7 @@ CONN_STR_PRIMARY = (
     "SERVER=DESKTOP-L7INTLS,1433;"
     "DATABASE=ARFEZ;"
     "UID=sa;"
-    "PWD=2209;"
+    "PWD=****;"
     "TrustServerCertificate=yes;"
     "Timeout=10;"
 )
@@ -69,7 +69,7 @@ CONN_STR_FALLBACK = (
     "SERVER=DESKTOP-L7INTLS\\SQLEXPRESS;"
     "DATABASE=ARFEZ;"
     "UID=sa;"
-    "PWD=2209;"
+    "PWD=****;"
     "TrustServerCertificate=yes;"
     "Timeout=10;"
 )
@@ -1992,7 +1992,7 @@ if __name__ == '__main__':
     print("=" * 60)
     print("ARFEZ AI v3.0 MSSQL API - CANLI VERI MODU")
     print("=" * 60)
-    print(f"Baglanti: {CONN_STR_PRIMARY.replace('PWD=2209;', 'PWD=***;')}")
+    print(f"Baglanti: {CONN_STR_PRIMARY.replace('PWD=****;', 'PWD=***;')}")
     print("Dashboard: http://127.0.0.1:5000")
     print("\n[ONEMLI] Canli veri icin:")
     print("  1. pip install yfinance pandas_ta")
