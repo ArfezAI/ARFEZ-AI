@@ -27,7 +27,7 @@ CONN_STR = (
     "SERVER=DESKTOP-L7INTLS,1433;"
     "DATABASE=ARFEZ;"
     "UID=sa;"
-    "PWD=2209;"
+    "PWD=****;"
     "TrustServerCertificate=yes;"
 )
 
