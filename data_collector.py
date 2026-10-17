@@ -3,6 +3,8 @@ ARFEZ AI v3.0 - Canli Veri Toplayici (pandas_ta'siz)
 =====================================================
 Python 3.14 uyumlu. Teknik indikatörler manuel hesaplanir.
 """
+import os
+import json
 import pyodbc
 import yfinance as yf
 import pandas as pd
@@ -10,6 +12,12 @@ import numpy as np
 import argparse
 from datetime import datetime, timedelta
 import time
+
+from fair_value_engine import (
+    calculate_pe_fair_value,
+    calculate_upside,
+    validate_data_quality,
+)
 
 # ============================================================
 # MSSQL BAGLANTI
@@ -43,238 +51,59 @@ def ensure_period_column(conn):
         print("[SCHEMA] predictions tablosuna 'period' sutunu eklendi")
     cursor.close()
 
+def ensure_fair_value_columns(conn):
+    """daily_scores tablosunda adil deger sutunlari yoksa ekler (veri kaybi olmadan)"""
+    columns = {
+        "current_price": "DECIMAL(19,4) NULL",
+        "forward_eps": "DECIMAL(19,4) NULL",
+        "fair_pe": "DECIMAL(9,2) NULL",
+        "fair_value": "DECIMAL(19,4) NULL",
+        "upside_pct": "DECIMAL(9,2) NULL",
+        "valuation_model": "VARCHAR(20) NULL",
+        "valuation_valid": "BIT NULL",
+        "valuation_reason": "NVARCHAR(300) NULL",
+    }
+    cursor = conn.cursor()
+    for name, sql_type in columns.items():
+        cursor.execute("""
+            IF COL_LENGTH('dbo.daily_scores', ?) IS NULL
+            BEGIN
+                DECLARE @sql NVARCHAR(MAX) =
+                    N'ALTER TABLE dbo.daily_scores ADD '
+                    + QUOTENAME(?) + N' """ + sql_type + """'
+                EXEC sp_executesql @sql
+            END
+        """, name, name)
+    conn.commit()
+    cursor.close()
+
 # ============================================================
 # HISSE EVRENI
 # ============================================================
 UNIVERSE = [
-    "ABT",
-    "AKR",
-    "AAMI",
-    "ACMR",
-    "ADEA",
-    "ADBE",
-    "AMD",
-    "AKTS",
-    "ALMR",
-    "ALLY",
-    "GOOGL",
-    "AMZN",
-    "AMTM",
-    "AS",
-    "AEP",
-    "AHR",
-    "AIG",
-    "ANDG",
-    "APGE",
-    "APO",
-    "AAPL",
-    "AADX",
-    "ADM",
-    "ACA",
-    "ARES",
-    "ATI",
-    "TEAM",
-    "AVLN",
-    "BKU",
-    "BRK-B",
-    "BGC",
-    "BILL",
-    "TECH",
-    "BX",
-    "OBDC",
-    "OWL",
-    "BOTZ",
-    "BWA",
-    "BHF",
-    "AVGO",
-    "BG",
-    "CZR",
-    "CCJ",
-    "CEPV",
-    "COF",
-    "CTRE",
-    "CG",
-    "CRS",
-    "CPRX",
-    "CX",
-    "CBRS",
-    "GTLS",
-    "CB",
-    "CFG",
-    "NET",
-    "CME",
-    "CMS",
-    "KO",
-    "CEG",
-    "CNM",
-    "CORZ",
-    "CRBG",
-    "CRWV",
-    "CPNG",
-    "CRH",
-    "DDOG",
-    "DLR",
-    "DBRG",
-    "DIS",
-    "D",
-    "DASH",
-    "DPC",
-    "ENRD",
-    "EA",
-    "LLY",
-    "EME",
-    "ETR",
-    "EROC",
-    "ESPR",
-    "ETSY",
-    "ES",
-    "EVGO",
-    "FVR",
-    "FIGR",
-    "FSLR",
-    "FE",
-    "FBC",
-    "FPS",
-    "FCX",
-    "GLXY",
-    "GFL",
-    "GBTG",
-    "SJW",
-    "Hawk",
-    "COAG",
-    "HTZ",
-    "HONA",
-    "HON",
-    "HUBG",
-    "HUM",
-    "HUN",
-    "IDA",
-    "PI",
-    "INGM",
-    "INNO",
-    "INTC",
-    "IBKR",
-    "EMXC",
-    "MUB",
-    "ITRI",
-    "ITT",
-    "J",
-    "JAN",
-    "JNJ",
-    "JPM",
-    "KLRA",
-    "KARD",
-    "KEEL",
-    "KVUE",
-    "KRG",
-    "KKR",
-    "KDK",
-    "KWEB",
-    "LGN",
-    "LIFT",
-    "LINC",
-    "LIN",
-    "LCID",
-    "MAC",
-    "MASI",
-    "MRVL",
-    "MTZ",
-    "MA",
-    "MTRN",
-    "MCD",
-    "MDLN",
-    "META",
-    "MCB",
-    "MGEE",
-    "MGM",
-    "MCHP",
-    "MU",
-    "MSFT",
-    "MFIC",
-    "MIDD",
-    "MS",
-    "NATL",
-    "NBIS",
-    "NPI",
-    "NFLX",
-    "NOC",
-    "NUVL",
-    "NVDA",
-    "ON",
-    "PZZA",
-    "PAYO",
-    "PM",
-    "PNFP",
-    "PONY",
-    "POR",
-    "PPL",
-    "PRIM",
-    "PGR",
-    "PEG",
-    "QNTM",
-    "QXO",
-    "RDNT",
-    "USAR",
-    "RBC",
-    "RDDT",
-    "ROKU",
-    "RUSHA",
-    "RSI",
-    "SPGI",
-    "XLF",
-    "SRE",
-    "NOW",
-    "SNAI",
-    "SILA",
-    "SITM",
-    "SW",
-    "SNOW",
-    "SOLV",
-    "SGI",
-    "SFST",
-    "SPSB",
-    "SARO",
-    "SPY",
-    "STLA",
-    "STM",
-    "SUNB",
-    "RUN",
-    "SMCI",
-    "TE",
-    "TSM",
-    "TLN",
-    "TALK",
-    "TMHC",
-    "TNC",
-    "TEX",
-    "TSLA",
-    "TXN",
-    "TKR",
-    "TKO",
-    "BLD",
-    "TPG",
-    "UBER",
-    "ULS",
-    "UNH",
-    "VRNS",
-    "VRSK",
-    "VZ",
-    "VSGN",
-    "VSH",
-    "VST",
-    "VSEC",
-    "WMT",
-    "WBD",
-    "WBS",
-    "WEC",
-    "WIX",
-    "WWD",
-    "XEL",
-    "XE",
-    "YSWY",
-    "YSS",
-    "ZETA",
-    "ZTS",
+    "ABT", "AKR", "AAMI", "ACMR", "ADEA", "ADBE", "AMD", "AKTS", "ALMR", "ALLY",
+    "GOOGL", "AMZN", "AMTM", "AS", "AEP", "AHR", "AIG", "ANDG", "APGE", "APO",
+    "AAPL", "AADX", "ADM", "ACA", "ARES", "ATI", "TEAM", "AVLN", "BKU", "BRK-B",
+    "BGC", "BILL", "TECH", "BX", "OBDC", "OWL", "BOTZ", "BWA", "BHF", "AVGO",
+    "BG", "CZR", "CCJ", "CEPV", "COF", "CTRE", "CG", "CRS", "CPRX", "CX",
+    "CBRS", "GTLS", "CB", "CFG", "NET", "CME", "CMS", "KO", "CEG", "CNM",
+    "CORZ", "CRBG", "CRWV", "CPNG", "CRH", "DDOG", "DLR", "DBRG", "DIS", "D",
+    "DASH", "DPC", "ENRD", "EA", "LLY", "EME", "ETR", "EROC", "ESPR", "ETSY",
+    "ES", "EVGO", "FVR", "FIGR", "FSLR", "FE", "FBC", "FPS", "FCX", "GLXY",
+    "GFL", "GBTG", "SJW", "Hawk", "COAG", "HTZ", "HONA", "HON", "HUBG", "HUM",
+    "HUN", "IDA", "PI", "INGM", "INNO", "INTC", "IBKR", "EMXC", "MUB", "ITRI",
+    "ITT", "J", "JAN", "JNJ", "JPM", "KLRA", "KARD", "KEEL", "KVUE", "KRG",
+    "KKR", "KDK", "KWEB", "LGN", "LIFT", "LINC", "LIN", "LCID", "MAC", "MASI",
+    "MRVL", "MTZ", "MA", "MTRN", "MCD", "MDLN", "META", "MCB", "MGEE", "MGM",
+    "MCHP", "MU", "MSFT", "MFIC", "MIDD", "MS", "NATL", "NBIS", "NPI", "NFLX",
+    "NOC", "NUVL", "NVDA", "ON", "PZZA", "PAYO", "PM", "PNFP", "PONY", "POR",
+    "PPL", "PRIM", "PGR", "PEG", "QNTM", "QXO", "RDNT", "USAR", "RBC", "RDDT",
+    "ROKU", "RUSHA", "RSI", "SPGI", "XLF", "SRE", "NOW", "SNAI", "SILA", "SITM",
+    "SW", "SNOW", "SOLV", "SGI", "SFST", "SPSB", "SARO", "SPY", "STLA", "STM",
+    "SUNB", "RUN", "SMCI", "TE", "TSM", "TLN", "TALK", "TMHC", "TNC", "TEX",
+    "TSLA", "TXN", "TKR", "TKO", "BLD", "TPG", "UBER", "ULS", "UNH", "VRNS",
+    "VRSK", "VZ", "VSGN", "VSH", "VST", "VSEC", "WMT", "WBD", "WBS", "WEC",
+    "WIX", "WWD", "XEL", "XE", "YSWY", "YSS", "ZETA", "ZTS",
 ]
 
 # ============================================================
@@ -515,6 +344,143 @@ def calculate_fundamental_score(info):
     return max(0, min(100, fundamental))
 
 # ============================================================
+# FAIR VALUE INTEGRATION
+# ============================================================
+def get_fair_pe_policy():
+    """
+    Sektör bazlı adil F/K politikası ortam değişkeninden okunur.
+    Örnek: {"Technology": 25, "Healthcare": 20}
+    Tanımlanmayan sektör için tahmini F/K kullanılmaz.
+    """
+    raw = os.getenv("ARFEZ_FAIR_PE_OVERRIDES", "{}")
+    try:
+        policy = json.loads(raw)
+        if not isinstance(policy, dict):
+            return {}
+        return {
+            str(sector): float(pe)
+            for sector, pe in policy.items()
+            if isinstance(pe, (int, float))
+            and not isinstance(pe, bool)
+            and 0 < float(pe) <= 100
+        }
+    except (ValueError, TypeError):
+        return {}
+
+
+def _empty_valuation(reason, current_price=None, forward_eps=None, fair_pe=None):
+    """Gecersiz degerleme sonucu (DB'ye NULL olarak yazilir)."""
+    return {
+        "current_price": current_price,
+        "forward_eps": forward_eps,
+        "fair_pe": fair_pe,
+        "fair_value": None,
+        "upside_pct": None,
+        "valuation_model": "FORWARD_PE",
+        "valuation_valid": False,
+        "valuation_reason": str(reason)[:300],
+    }
+
+
+def collect_valuation_inputs(df, info):
+    """Son kapanışı ve finansal girdileri ayrı alanlarda toplar."""
+    latest = df.iloc[-1]
+    price = float(latest["Close"])
+    if not np.isfinite(price) or price <= 0:
+        raise ValueError("Son kapanış fiyatı geçersiz.")
+
+    current_price = round(price, 4)
+
+    # --- Forward EPS ---
+    raw_eps = info.get("forwardEps")
+    if raw_eps is None or isinstance(raw_eps, bool):
+        return _empty_valuation("Forward EPS verisi yok.", current_price)
+    try:
+        forward_eps = float(raw_eps)
+    except (TypeError, ValueError):
+        return _empty_valuation("Forward EPS sayisal degil.", current_price)
+    if not np.isfinite(forward_eps):
+        return _empty_valuation("Forward EPS gecersiz.", current_price)
+
+    # --- Sektor bazli adil F/K (tahmin yok, sadece kullanici politikasi) ---
+    sector = info.get("sector")
+    fair_pe = get_fair_pe_policy().get(sector) if sector else None
+    if fair_pe is None:
+        return _empty_valuation(
+            f"Sektor icin adil F/K tanimli degil: {sector or 'Unknown'}",
+            current_price, forward_eps,
+        )
+
+    # --- Veri kalitesi: finansal veri tarihi + fiyat tarihi ---
+    try:
+        mrq = info.get("mostRecentQuarter")
+
+        if isinstance(mrq, (int, float)) and not isinstance(mrq, bool):
+            financial_date = datetime.fromtimestamp(mrq).date()
+        elif isinstance(mrq, (datetime, pd.Timestamp)):
+            financial_date = mrq.date()
+        elif mrq:
+            financial_date = pd.Timestamp(mrq).date()
+        else:
+            financial_date = None
+
+        if financial_date is None:
+            return _empty_valuation(
+                "Finansal rapor tarihi bulunamadı.",
+                current_price,
+                forward_eps,
+                fair_pe,
+            )
+
+        price_date = pd.Timestamp(df.index[-1]).date()
+
+        validate_data_quality(
+            price,
+            financial_date,
+            price_date=price_date,
+        )
+
+    except (ValueError, TypeError, OverflowError) as e:
+        return _empty_valuation(
+            e,
+            current_price,
+            forward_eps,
+            fair_pe,
+        )
+        price_date = pd.Timestamp(df.index[-1]).date()
+        validate_data_quality(price, financial_date, price_date=price_date)
+    except ValueError as e:
+        return _empty_valuation(e, current_price, forward_eps, fair_pe)
+
+    # --- Adil deger ---
+    try:
+        result = calculate_pe_fair_value(current_price, forward_eps, fair_pe)
+    except ValueError as e:
+        return _empty_valuation(e, current_price, forward_eps, fair_pe)
+
+    if not result.get("valid"):
+        return _empty_valuation(
+            result.get("reason", "Adil deger hesaplanamadi."),
+            current_price, forward_eps, fair_pe,
+        )
+
+    try:
+        upside = calculate_upside(current_price, result["fair_value"])
+    except ValueError as e:
+        return _empty_valuation(e, current_price, forward_eps, fair_pe)
+
+    return {
+        "current_price": current_price,
+        "forward_eps": round(forward_eps, 4),
+        "fair_pe": round(float(fair_pe), 2),
+        "fair_value": result["fair_value"],
+        "upside_pct": upside["upside_pct"],
+        "valuation_model": result["model"],
+        "valuation_valid": True,
+        "valuation_reason": f"OK | {upside['status']}",
+    }
+
+# ============================================================
 # RISK SKORU
 # ============================================================
 def calculate_risk_score(df, info):
@@ -588,13 +554,31 @@ def process_symbol(symbol, cursor, macro_effect, regime, period='daily'):
             return None
 
         info = ticker.info
+
+
+        # Adil deger girdileri: hata olursa skor akisi durmaz.
+        try:
+            valuation_data = collect_valuation_inputs(df, info)
+        except Exception as ve:
+            valuation_data = _empty_valuation(
+                f"Değerleme hatası: {ve}",
+                current_price=float(df["Close"].iloc[-1]),
+            )
+
+
         technical, tech_details = calculate_technical_score(df)
         fundamental = calculate_fundamental_score(info)
         risk = calculate_risk_score(df, info)
 
         new_world = min(100, int((technical * 0.4 + fundamental * 0.4 + risk * 0.2) * 1.1))
         confidence = int(50 + (technical + fundamental) / 4)
+        # Bu alan 0-100 skorudur; dolar cinsinden değildir.
         valuation = fundamental
+        valuation_score = fundamental
+        # Gerçek fiyat ve adil değer ayrı değişkenlerdir.
+        current_price = valuation_data["current_price"]
+        fair_value = valuation_data["fair_value"]
+        upside_pct = valuation_data["upside_pct"]
         capital_flow = technical
         theme = new_world
 
@@ -646,6 +630,32 @@ def process_symbol(symbol, cursor, macro_effect, regime, period='daily'):
         """, (symbol, today, final, new_world, technical, fundamental, risk, confidence,
               macro_effect, valuation, capital_flow, theme, final, signal, target, stop, expected))
 
+        # Adil deger alanlari (mevcut skor kolonlarina dokunmaz)
+        cursor.execute("""
+            UPDATE dbo.daily_scores
+            SET
+                current_price = ?,
+                forward_eps = ?,
+                fair_pe = ?,
+                fair_value = ?,
+                upside_pct = ?,
+                valuation_model = ?,
+                valuation_valid = ?,
+                valuation_reason = ?
+            WHERE symbol = ? AND date = ?
+        """, (
+            valuation_data["current_price"],
+            valuation_data["forward_eps"],
+            valuation_data["fair_pe"],
+            valuation_data["fair_value"],
+            valuation_data["upside_pct"],
+            valuation_data["valuation_model"],
+            int(valuation_data["valuation_valid"]),
+            valuation_data["valuation_reason"],
+            symbol,
+            today,
+        ))
+
         sector = info.get('sector', 'Unknown') or 'Unknown'
         name = info.get('longName') or info.get('shortName') or symbol
         cursor.execute("""
@@ -694,7 +704,7 @@ def process_symbol(symbol, cursor, macro_effect, regime, period='daily'):
                         source.predicted_return, source.actual_return, source.error_code);
         """, (symbol, today, period, signal, predicted_return, weekly_return, error_code))
 
-        print(f"OK | Final:{final} | Signal:{signal} | Price:${round(latest['Close'],2)} | ActualRet(7g):{weekly_return}% | Err:{error_code}")
+        print(f"OK | Final:{final} | Signal:{signal} | Price:${round(latest['Close'],2)} | FairValue:{fair_value} | Upside:{upside_pct}% | ActualRet(7g):{weekly_return}% | Err:{error_code}")
         return {
             'symbol': symbol, 'final': final, 'signal': signal,
             'technical': technical, 'fundamental': fundamental, 'risk': risk,
@@ -775,6 +785,7 @@ def main():
 
     try:
         ensure_period_column(conn)
+        ensure_fair_value_columns(conn)
 
         if args.macro or not args.symbol:
             update_macro(cursor)
