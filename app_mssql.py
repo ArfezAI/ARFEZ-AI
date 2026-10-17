@@ -4,7 +4,8 @@ import pyodbc
 import os
 import sys
 import traceback
-from datetime import datetime
+from datetime import datetime, date as _date, datetime as _dt
+from decimal import Decimal
 from contextlib import contextmanager
 
 try:
@@ -25,7 +26,7 @@ app = Flask(__name__)
 CORS(app)
 
 # ============================================================
-# YENİ: Centralized Error Handler Decorator
+# CENTRALIZED ERROR HANDLER DECORATOR
 # ============================================================
 def api_endpoint(f):
     """Decorator for consistent error handling across all API endpoints"""
@@ -41,7 +42,6 @@ def api_endpoint(f):
                 "endpoint": endpoint_name
             }), 503
         except Exception as ex:
-            # Traceback'ı logla ancak kullanıcıya raw traceback gösterme
             app.logger.error(f"[API {endpoint_name}] Beklenmedik hata: {ex}")
             app.logger.debug(f"Traceback: {traceback.format_exc()}")
             return jsonify({
@@ -123,14 +123,38 @@ def ensure_period_column(conn):
         app.logger.info("[SCHEMA] predictions tablosuna 'period' sutunu eklendi")
     cursor.close()
 
+# ============================================================
+# YARDIMCI: JSON-SAFE DONUSUM (Decimal -> float, date -> str)
+# ============================================================
+def _json_safe(v):
+    """
+    pyodbc'nin dondurdugu Decimal / date / datetime tiplerini
+    JSON-safe ve aritmetige uygun Python tiplerine cevirir.
+    Bu fonksiyon sayesinde 'float += Decimal' hatasi olusmaz.
+    """
+    if isinstance(v, Decimal):
+        return float(v)
+    if isinstance(v, _dt):
+        return v.isoformat()
+    if isinstance(v, _date):
+        return v.isoformat()
+    return v
+
+
 def dictfetchall(cursor):
     columns = [column[0] for column in cursor.description]
-    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    return [
+        {col: _json_safe(val) for col, val in zip(columns, row)}
+        for row in cursor.fetchall()
+    ]
+
 
 def dictfetchone(cursor):
     columns = [column[0] for column in cursor.description]
     row = cursor.fetchone()
-    return dict(zip(columns, row)) if row else None
+    if not row:
+        return None
+    return {col: _json_safe(val) for col, val in zip(columns, row)}
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -186,14 +210,12 @@ def fetch_live_scores():
         if hist.empty:
             return jsonify({"error": "Canli veri alinamadi"}), 503
 
-        # RSI hesapla (eger pandas_ta varsa)
         if PANDAS_TA_OK and len(hist) > 14:
             rsi = ta.rsi(hist['Close'], length=14).iloc[-1]
-            rsi = float(rsi) if rsi == rsi else 50  # NaN kontrolu
+            rsi = float(rsi) if rsi == rsi else 50
         else:
             rsi = 50
 
-        # Basit skorlama
         technical = int(100 - abs(rsi - 50) * 2)
         technical = max(30, min(95, technical))
 
@@ -209,7 +231,7 @@ def fetch_live_scores():
         return jsonify({"error": "Canli skor uretilemedi", "detail": str(e)}), 503
 
 # ============================================================
-# 2. STOCKS - Hisse evreni (DB'den)
+# 2. STOCKS - Hisse evreni (DB'den)  [DUZELTILDI]
 # ============================================================
 @app.route('/api/stocks')
 @api_endpoint
@@ -219,35 +241,34 @@ def stocks():
             cursor = conn.cursor()
             today = datetime.now().strftime('%Y-%m-%d')
             cursor.execute("""
-                SELECT s.symbol, s.name, s.sector, d.arfez_score, d.final_score, 
+                SELECT s.symbol, s.name, s.sector, d.arfez_score, d.final_score,
                        d.signal, d.target_price, d.stop_loss, d.expected_return
-                FROM stocks s 
+                FROM stocks s
                 LEFT JOIN daily_scores d ON s.symbol = d.symbol AND d.date = ?
                 ORDER BY ISNULL(d.final_score, 0) DESC
             """, (today,))
             rows = dictfetchall(cursor)
             cursor.close()
 
+            # DB bos ise canli fallback
             if not rows and YFINANCE_OK:
                 return fetch_live_stocks()
 
-            
+            # DB dolu ise satirlari dogrudan JSON'a cevir
             result = []
             for r in rows:
-
                 result.append({
-                    "symbol": sym,
-                    "name": info.get('longName', sym),
-                    "sector": info.get('sector', 'Unknown'),
-                    "arfez_score": 50,
-                    "final_score": 50,
-                    "signal": "BEKLE",
-                    "target": None,
-                    "stop": None,
-                    "expected_return": change,
-
-                    # Yeni alanlar
-                    "current_price": price,
+                    "symbol": r.get('symbol'),
+                    "name": r.get('name'),
+                    "sector": r.get('sector'),
+                    "arfez_score": r.get('arfez_score') or 0,
+                    "final_score": r.get('final_score') or 0,
+                    "signal": r.get('signal') or "BEKLE",
+                    "target": r.get('target_price'),
+                    "stop": r.get('stop_loss'),
+                    "expected_return": r.get('expected_return'),
+                    # Yeni alanlar (DB'de henuz yok, null donuyor)
+                    "current_price": None,
                     "fair_value": None
                 })
             return jsonify(result)
@@ -266,14 +287,27 @@ def fetch_live_stocks():
                 hist = t.history(period="5d")
                 if hist.empty:
                     continue
-                price = round(hist['Close'].iloc[-1], 2)
-                change = round(((price - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100, 2) if len(hist) > 1 else 0
+                price = round(float(hist['Close'].iloc[-1]), 2)
+                if len(hist) > 1:
+                    change = round(
+                        ((price - float(hist['Close'].iloc[-2])) /
+                         float(hist['Close'].iloc[-2])) * 100, 2
+                    )
+                else:
+                    change = 0.0
                 result.append({
-                    "symbol": sym, "name": info.get('longName', sym),
+                    "symbol": sym,
+                    "name": info.get('longName', sym),
                     "sector": info.get('sector', 'Unknown'),
-                    "arfez_score": 50, "final_score": 50,
-                    "signal": "BEKLE", "target": None, "stop": None,
-                    "expected_return": change
+                    "arfez_score": 50,
+                    "final_score": 50,
+                    "signal": "BEKLE",
+                    "target": None,
+                    "stop": None,
+                    "expected_return": change,
+                    "current_price": price,
+                    "fair_value": None,
+                    "source": "live_fallback"
                 })
             except Exception:
                 continue
@@ -315,7 +349,7 @@ def watchlist():
         return jsonify({"error": "Veritabanina baglanilamadi", "detail": str(e)}), 503
 
 # ============================================================
-# 4. ELITE FUNDS - DB'den
+# 4. ELITE FUNDS - DB'den  [DUZELTILDI - Decimal/float]
 # ============================================================
 @app.route('/api/elite-funds')
 @api_endpoint
@@ -324,12 +358,12 @@ def elite_funds():
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT fund_name, symbol, weight, change_qoq 
-                FROM fund_holdings 
+                SELECT fund_name, symbol, weight, change_qoq
+                FROM fund_holdings
                 WHERE quarter = '2026Q2'
                 ORDER BY weight DESC
             """)
-            rows = dictfetchall(cursor)
+            rows = dictfetchall(cursor)   # _json_safe: Decimal -> float
             cursor.close()
 
             if not rows:
@@ -338,27 +372,38 @@ def elite_funds():
             funds = {}
             consensus = {}
             for r in rows:
-                if r['fund_name'] not in funds:
-                    funds[r['fund_name']] = []
-                funds[r['fund_name']].append(r['symbol'])
-                if r['symbol'] not in consensus:
-                    consensus[r['symbol']] = {"buy": 0, "sell": 0, "avg_weight": 0.0, "count": 0}
-                consensus[r['symbol']]['count'] += 1
-                consensus[r['symbol']]['avg_weight'] += r['weight']
-                if r['change_qoq'] > 0:
-                    consensus[r['symbol']]['buy'] += 1
+                # _json_safe zaten float yapti, ama savunma amacli float() ile zorla
+                w = float(r['weight']) if r.get('weight') is not None else 0.0
+                chg = float(r['change_qoq']) if r.get('change_qoq') is not None else 0.0
+
+                funds.setdefault(r['fund_name'], []).append(r['symbol'])
+
+                c = consensus.setdefault(
+                    r['symbol'],
+                    {"buy": 0, "sell": 0, "avg_weight": 0.0, "count": 0}
+                )
+                c['count'] += 1
+                c['avg_weight'] += w          # float + float -> OK
+                if chg > 0:
+                    c['buy'] += 1
                 else:
-                    consensus[r['symbol']]['sell'] += 1
+                    c['sell'] += 1
 
             for sym in consensus:
-                consensus[sym]['avg_weight'] = round(consensus[sym]['avg_weight'] / consensus[sym]['count'], 2)
+                c = consensus[sym]
+                if c['count'] > 0:
+                    c['avg_weight'] = round(c['avg_weight'] / c['count'], 2)
 
-            return jsonify({"funds": list(funds.keys()), "holdings": funds, "consensus": consensus})
+            return jsonify({
+                "funds": list(funds.keys()),
+                "holdings": funds,
+                "consensus": consensus
+            })
     except pyodbc.Error as e:
         return jsonify({"error": "Veritabanina baglanilamadi", "detail": str(e)}), 503
 
 # ============================================================
-# 5. BACKTEST - DB'den gercek metrikler
+# 5. BACKTEST - DB'den gercek metrikler  [DUZELTILDI]
 # ============================================================
 @app.route('/api/backtest')
 @api_endpoint
@@ -367,7 +412,7 @@ def backtest():
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT 
+                SELECT
                     COUNT(*) as total,
                     SUM(CASE WHEN target_hit = 1 THEN 1 ELSE 0 END) as targets,
                     SUM(CASE WHEN stop_hit = 1 THEN 1 ELSE 0 END) as stops,
@@ -375,13 +420,16 @@ def backtest():
                 FROM predictions
             """)
             row = cursor.fetchone()
-            total = row[0] or 1
-            targets = row[1] or 0
-            stops = row[2] or 0
-            avg_ret = row[3] or 0
+            cursor.close()
+
+            total = int(row[0] or 1)
+            targets = int(row[1] or 0)
+            stops = int(row[2] or 0)
+            # AVG(actual_return) DECIMAL doner -> float'a cevir
+            avg_ret = float(row[3]) if row[3] is not None else 0.0
+
             target_rate = round(targets / total * 100, 1)
             stop_rate = round(stops / total * 100, 1)
-            cursor.close()
 
             return jsonify({
                 "direction_accuracy": 72.4,
@@ -532,7 +580,7 @@ def memory_stats():
         return jsonify({"error": "Veritabanina baglanilamadi", "detail": str(e)}), 503
 
 # ============================================================
-# 9. KNOWLEDGE GRAPH - Statik (AI uretimi)
+# 9. KNOWLEDGE GRAPH - Statik
 # ============================================================
 @app.route('/api/knowledge-graph')
 def knowledge_graph():
@@ -563,18 +611,14 @@ def knowledge_graph():
 @app.route('/api/stock/<symbol>')
 @api_endpoint
 def stock_detail(symbol):
-    # Symbol validation
     symbol = symbol.strip().upper()
     if not symbol:
         return jsonify({"error": "symbol parametresi boş olamaz"}), 400
-    
     if len(symbol) > 10:
         return jsonify({"error": "symbol çok uzun (max 10 karakter)"}), 400
-    
-    # Geçersiz karakterleri kontrol et
     if not symbol.replace('-', '').replace('.', '').isalnum():
         return jsonify({"error": "symbol sadece harf, rakam, çizgi ve nokta içerebilir"}), 400
-    
+
     try:
         with get_db() as conn:
             cursor = conn.cursor()
@@ -610,7 +654,7 @@ def fetch_live_stock_detail(symbol):
             "symbol": symbol,
             "name": info.get('longName', symbol),
             "sector": info.get('sector', 'Unknown'),
-            "price": round(latest['Close'], 2),
+            "price": round(float(latest['Close']), 2),
             "volume": int(latest['Volume']),
             "market_cap": info.get('marketCap'),
             "pe_ratio": info.get('trailingPE'),
@@ -626,43 +670,40 @@ def fetch_live_stock_detail(symbol):
 @app.route('/api/fetch/<symbol>')
 @api_endpoint
 def fetch_live(symbol):
-    # Symbol validation
     symbol = symbol.strip().upper()
     if not symbol:
         return jsonify({"error": "symbol parametresi boş olamaz"}), 400
-    
     if len(symbol) > 10:
         return jsonify({"error": "symbol çok uzun (max 10 karakter)"}), 400
-    
     if not symbol.replace('-', '').replace('.', '').isalnum():
         return jsonify({"error": "symbol sadece harf, rakam, çizgi ve nokta içerebilir"}), 400
-    
+
     if not YFINANCE_OK:
         return jsonify({
             "error": "yfinance kurulu degil",
             "message": "pip install yfinance pandas_ta ile kurabilirsiniz"
         }), 500
-    
+
     try:
         ticker = yf.Ticker(symbol)
         info = ticker.info
         hist = ticker.history(period="5d")
-        
+
         if hist.empty:
             return jsonify({"error": f"{symbol} için veri bulunamadi"}), 404
-        
+
         latest = hist.iloc[-1]
         prev = hist.iloc[-2] if len(hist) > 1 else latest
-        change = ((latest['Close'] - prev['Close']) / prev['Close']) * 100
-        
+        change = ((float(latest['Close']) - float(prev['Close'])) / float(prev['Close'])) * 100
+
         return jsonify({
-            "symbol": symbol, 
-            "price": round(latest['Close'], 2),
-            "change_percent": round(change, 2), 
+            "symbol": symbol,
+            "price": round(float(latest['Close']), 2),
+            "change_percent": round(change, 2),
             "volume": int(latest['Volume']),
-            "market_cap": info.get('marketCap'), 
+            "market_cap": info.get('marketCap'),
             "pe_ratio": info.get('trailingPE'),
-            "sector": info.get('sector'), 
+            "sector": info.get('sector'),
             "source": "yfinance",
             "timestamp": datetime.now().isoformat()
         })
@@ -671,57 +712,51 @@ def fetch_live(symbol):
         return jsonify({"error": "Veri cekilemedi", "detail": str(e)}), 500
 
 # ============================================================
-# 12. TAHMIN KAYDET - Guncellenmis Prediction Endpoint
+# 12. TAHMIN KAYDET
 # ============================================================
 @app.route('/api/predict', methods=['POST'])
 @api_endpoint
 def save_prediction():
     try:
-        # Gelen veriyi doğrula
         data = request.get_json()
         if not data:
             return jsonify({"error": "JSON body eksik veya invalid"}), 400
-        
+
         if 'symbol' not in data or not data['symbol'].strip():
             return jsonify({"error": "symbol alanı zorunlu ve boş olamaz"}), 400
-        
+
         if 'signal' not in data or not data['signal'].strip():
             return jsonify({"error": "signal alanı zorunlu ve boş olamaz"}), 400
-        
+
         symbol = data['symbol'].strip().upper()
         signal = data['signal'].strip().upper()
-        
-        # Signal değeri sadece AL, SAT veya BEKLE olmalı
+
         valid_signals = ['AL', 'SAT', 'BEKLE']
         if signal not in valid_signals:
             return jsonify({"error": f"signal '{signal}' geçersiz. {', '.join(valid_signals)} olmalı"}), 400
 
-        # period: 'daily' (varsayilan) veya 'weekly'
         period = str(data.get('period', 'daily')).strip().lower()
         if period not in ('daily', 'weekly'):
             return jsonify({"error": "period 'daily' veya 'weekly' olmalı"}), 400
-        
+
         predicted_return = data.get('predicted_return', 0)
         if not isinstance(predicted_return, (int, float)):
             try:
                 predicted_return = float(predicted_return)
             except (ValueError, TypeError):
                 return jsonify({"error": "predicted_return sayı olmalı"}), 400
-        
+
         today = datetime.now().strftime('%Y-%m-%d')
-        
+
         with get_db() as conn:
             cursor = conn.cursor()
-            
-            # Aynı sembol, aynı tarih, aynı period için daha önce kayıt var mı kontrol et
-            # (sadece durum mesaji icin; asil yazma MERGE ile atomik yapiliyor)
+
             cursor.execute("""
                 SELECT COUNT(*) FROM predictions WHERE symbol = ? AND date = ? AND period = ?
             """, (symbol, today, period))
             existing = cursor.fetchone()[0]
             action = "updated" if existing > 0 else "inserted"
 
-            # symbol + date + period kombinasyonuna gore guncelle/ekle
             cursor.execute("""
                 MERGE predictions AS target
                 USING (VALUES (?, ?, ?, ?, ?)) AS source
@@ -739,28 +774,27 @@ def save_prediction():
                     VALUES (source.symbol, source.date, source.period,
                             source.prediction_signal, source.predicted_return);
             """, (symbol, today, period, signal, predicted_return))
-            
+
             conn.commit()
             cursor.close()
-            
+
             return jsonify({
-                "status": action, 
-                "symbol": symbol, 
+                "status": action,
+                "symbol": symbol,
                 "signal": signal,
                 "predicted_return": predicted_return,
                 "period": period,
                 "date": today
             })
-            
+
     except pyodbc.Error as e:
         return jsonify({"error": "Veritabanina kaydedilemedi", "detail": str(e)}), 503
 
 # ============================================================
-# 13. HEALTH CHECK - Zenginlestirilmis Health Check
+# 13. HEALTH CHECK
 # ============================================================
 @app.route('/api/health')
 def health():
-    # Database baglantisini kontrol et
     db_status = "error"
     db_ok = False
     try:
@@ -770,8 +804,7 @@ def health():
             db_ok = True
     except Exception as e:
         app.logger.error("[HEALTH] DB hatasi: " + str(e))
-    
-    # Yfinance durumu
+
     yf_status = "missing"
     yf_ok = False
     if YFINANCE_OK:
@@ -779,8 +812,7 @@ def health():
         yf_status = "available"
     else:
         app.logger.warning("[HEALTH] yfinance eksik")
-    
-    # pandas_ta durumu
+
     pandas_status = "missing"
     pandas_ok = False
     if PANDAS_TA_OK:
@@ -788,9 +820,9 @@ def health():
         pandas_status = "available"
     else:
         app.logger.warning("[HEALTH] pandas_ta eksik")
-    
+
     status = "healthy" if db_ok and yf_ok else "degraded"
-    
+
     return jsonify({
         "status": status,
         "timestamp": datetime.now().isoformat(),
@@ -811,7 +843,6 @@ def health():
 
 # ============================================================
 # MODUL 4: POST-MORTEM YARDIMCI FONKSIYONLARI
-# Hata kodu belirleme ve aciklama dondurme
 # ============================================================
 
 def determine_error_code(signal, predicted_return, actual_return):
@@ -830,22 +861,16 @@ def determine_error_code(signal, predicted_return, actual_return):
     """
     diff = abs(predicted_return - actual_return)
 
-    # AL sinyal ve ciddi zarar -> Teknik hata
     if signal == 'AL' and actual_return < -3:
         return 'T1'
-    # SAT sinyal ve ciddi kar -> Sektor hatasi
     elif signal == 'SAT' and actual_return > 3:
         return 'S1'
-    # Bekle sinyal ve sert hareket -> Band hatasi
     elif signal == 'BEKLE' and abs(actual_return) > 2:
         return 'B1'
-    # Tahmin ile gercek arasinda 5%+ fark -> Cross-Asset
     elif diff > 5:
         return 'C1'
-    # Negatif sonuc ve rejim degisimi -> Rejim hatasi
     elif actual_return < 0:
         return 'R1'
-    # Basariyla tahmin -> A1 (Basarili)
     else:
         return 'A1'
 
@@ -871,14 +896,6 @@ def error_description(error_code):
 @app.route('/api/postmortem', methods=['POST'])
 @api_endpoint
 def postmortem():
-    """
-    POST /api/postmortem
-    - symbol: str
-    - signal: str (AL/SAT/BEKLE)
-    - predicted_return: float
-    - actual_return: float
-    - date: str (YYYY-MM-DD, opsiyonel - bos ise bugun)
-    """
     try:
         data = request.get_json()
         if not data:
@@ -889,7 +906,6 @@ def postmortem():
         predicted_return = float(data.get('predicted_return', 0))
         actual_return = float(data.get('actual_return', 0))
 
-        # period: 'daily' (varsayilan) veya 'weekly'
         period = str(data.get('period', 'daily')).strip().lower()
         if period not in ('daily', 'weekly'):
             return jsonify({"error": "period 'daily' veya 'weekly' olmali"}), 400
@@ -900,7 +916,6 @@ def postmortem():
         if signal not in valid_signals:
             return jsonify({"error": f"signal '{signal}' gecersiz. {', '.join(valid_signals)} olmali"}), 400
 
-        # Hata kodu belirleme (Module 4 helper)
         error_code = determine_error_code(signal, predicted_return, actual_return)
         description = error_description(error_code)
 
@@ -908,8 +923,6 @@ def postmortem():
 
         with get_db() as conn:
             cursor = conn.cursor()
-            # symbol + date + period eslesirse mevcut tahmin satirini gerceklesen
-            # sonucla guncelle; eslesme yoksa yeni satir olustur.
             cursor.execute("""
                 MERGE predictions AS target
                 USING (VALUES (?, ?, ?, ?, ?, ?, ?)) AS source
@@ -957,17 +970,14 @@ def postmortem():
 
 # ============================================================
 # API ENDPOINT - POST-MORTEM ISTATISTIKLERI
-# Hata kodu dagilimi ve ortalama hata analizi
 # ============================================================
 @app.route('/api/postmortem/stats')
 @api_endpoint
 def postmortem_stats():
-    """Post-mortem istatistikleri ve hata kodu dagilimi"""
     try:
         with get_db() as conn:
             cursor = conn.cursor()
 
-            # Hata kodu dagilimi
             cursor.execute("""
                 SELECT error_code, COUNT(*) as count,
                        AVG(ABS(predicted_return - actual_return)) as avg_error
@@ -978,12 +988,10 @@ def postmortem_stats():
             """)
             rows = dictfetchall(cursor)
 
-            # Toplam tahmin sayisi
             cursor.execute("SELECT COUNT(*) FROM predictions")
             total = cursor.fetchone()[0]
             cursor.close()
 
-            # Dagilimi formatla
             distribution = []
             for row in rows:
                 distribution.append({
@@ -991,7 +999,7 @@ def postmortem_stats():
                     "name": error_description(row['error_code']),
                     "count": row['count'],
                     "percentage": round(row['count'] / total * 100, 1) if total > 0 else 0,
-                    "avg_error": round(row['avg_error'] or 0, 2)
+                    "avg_error": round(float(row['avg_error']) if row['avg_error'] is not None else 0.0, 2)
                 })
 
             return jsonify({
@@ -1012,7 +1020,6 @@ def postmortem_stats():
 @app.route('/api/calibration')
 @api_endpoint
 def get_calibration():
-    """Confidence band'larin gercek basari oranlarini dondurur"""
     try:
         with get_db() as conn:
             cursor = conn.cursor()
@@ -1037,7 +1044,7 @@ def get_calibration():
                         'band': r['confidence'],
                         'expected': r['confidence'],
                         'actual_rate': round(actual_rate, 1),
-                        'avg_return': round(r['avg_return'], 2),
+                        'avg_return': round(float(r['avg_return']) if r['avg_return'] is not None else 0.0, 2),
                         'total': total
                     })
 
@@ -1054,21 +1061,14 @@ def get_calibration():
 @app.route('/api/kelly/<symbol>')
 @api_endpoint
 def kelly_sizing(symbol):
-    """Kelly kriterine gore pozisyon boyutlandirma
-
-    Query params:
-    - win_prob: basari orani (default 0.55)
-    - win_loss: kaz/kayip orani (default 2.0)
-    - capital: ana para (default 100000)
-    """
     try:
         symbol = symbol.strip().upper()
         if not symbol:
             return jsonify({"error": "symbol zorunlu"}), 400
 
-        p = float(request.args.get('win_prob', 0.55))        # Basari orani
-        b = float(request.args.get('win_loss', 2.0))         # Kaz/Kayip orani
-        capital = float(request.args.get('capital', 100000))  # Ana para
+        p = float(request.args.get('win_prob', 0.55))
+        b = float(request.args.get('win_loss', 2.0))
+        capital = float(request.args.get('capital', 100000))
 
         if p <= 0 or p >= 1:
             return jsonify({"error": "win_prob 0 ile 1 arasinda olmali"}), 400
@@ -1117,13 +1117,12 @@ def kelly_sizing(symbol):
 def _calculate_technical_signal(symbol, period_days=1):
     """Belirtilen periyot icin teknik sinyal hesapla"""
     if not YFINANCE_OK or not PANDAS_TA_OK:
-        return "BEKLE", 50  # Veri yoksa bekle
+        return "BEKLE", 50
 
     try:
         ticker = yf.Ticker(symbol)
-        # Periyota gore veri cek
         if period_days <= 7:
-            hist = ticker.history(period="1mo")   # En az 20 gun gerekli
+            hist = ticker.history(period="1mo")
         elif period_days <= 30:
             hist = ticker.history(period="3mo")
         elif period_days <= 90:
@@ -1138,31 +1137,25 @@ def _calculate_technical_signal(symbol, period_days=1):
         if hist.empty or len(hist) < 20:
             return "BEKLE", 50
 
-        # MACD hesapla
         macd = ta.macd(hist['Close'])
         macd_hist = float(macd['MACDh_12_26_9'].iloc[-1]) if macd is not None and not macd.empty else 0.0
 
-        # RSI hesapla
         rsi_val = ta.rsi(hist['Close'], length=14).iloc[-1]
-        rsi = float(rsi_val) if rsi_val == rsi_val else 50  # NaN kontrolu
+        rsi = float(rsi_val) if rsi_val == rsi_val else 50
 
-        # Basit sinyal mantigi
         buy_signals = 0
         sell_signals = 0
 
-        # RSI kosullari
         if rsi < 30:
-            buy_signals += 2   # Asiri satim
+            buy_signals += 2
         elif rsi > 70:
-            sell_signals += 2  # Asiri alim
+            sell_signals += 2
 
-        # MACD kosullari
         if macd_hist > 0:
             buy_signals += 1
         elif macd_hist < 0:
             sell_signals += 1
 
-        # Karar ver
         if buy_signals > sell_signals:
             signal = "AL"
             confidence = min(95, 50 + (buy_signals - sell_signals) * 15)
@@ -1180,7 +1173,6 @@ def _calculate_technical_signal(symbol, period_days=1):
         return "BEKLE", 50
 
 
-# Period mapping - her iki endpoint tarafindan ortak kullanilir
 PERIOD_MAP = {
     '1g': 1, '1w': 7, '2w': 14, '1m': 30,
     '3m': 90, '6m': 180, '1y': 365
@@ -1192,17 +1184,11 @@ PERIOD_NAMES = {
 
 
 # ============================================================
-# TOPLU ANALIZ - COKLU SYMBOL (once tanimlanmali, <symbol> route'undan daha spesifik)
+# TOPLU ANALIZ - COKLU SYMBOL
 # ============================================================
 @app.route('/api/analyze/batch')
 @api_endpoint
 def analyze_batch():
-    """
-    Birden fazla hissede ayni zaman dilimi analiz yap
-    Query params:
-    - symbols: virgulle ayrilmis sembol listesi (orn: NVDA,AAPL,MSFT)
-    - period: 1g, 1w, 3m, 1y gibi
-    """
     try:
         symbols_str = request.args.get('symbols', '')
         period = request.args.get('period', '1g')
@@ -1244,12 +1230,6 @@ def analyze_batch():
 @app.route('/api/analyze/<symbol>')
 @api_endpoint
 def analyze_symbol(symbol):
-    """
-    Zaman dilimlerine gore al/sat/bekle sinyali
-
-    Query params:
-    - period: 1g, 1w, 2w, 1m, 3m, 6m, 1y
-    """
     try:
         symbol = symbol.strip().upper()
         if not symbol:
@@ -1257,12 +1237,11 @@ def analyze_symbol(symbol):
         if not symbol.replace('-', '').replace('.', '').isalnum():
             return jsonify({"error": "symbol sadece harf, rakam, cizgi ve nokta icerebilir"}), 400
 
-        period = request.args.get('period', '1g')  # default gunluk
+        period = request.args.get('period', '1g')
         days = PERIOD_MAP.get(period, 1)
 
         signal, confidence = _calculate_technical_signal(symbol, days)
 
-        # DB'ye kaydet (opsiyonel - hata olursa analizi engelleme)
         try:
             with get_db() as conn:
                 cursor = conn.cursor()
@@ -1293,13 +1272,11 @@ def analyze_symbol(symbol):
 
 # ============================================================
 # MODUL 6: COK ZAMAN DILIMLI KONSENSUS MOTORU
-# Artis/azalis + neden analizi + agirlikli AL/SAT/BEKLE karari
 # ============================================================
 
 import math
 
 TIMEFRAMES = [
-    # key, ad, agirlik, gunluk grafikte kac bar geriye bakilacak
     {'key': '1g',  'name': 'Gunluk',      'weight': 1.0, 'bars': 1},
     {'key': '1w',  'name': 'Haftalik',    'weight': 1.5, 'bars': 5},
     {'key': '2w',  'name': '2 Haftalik',  'weight': 1.5, 'bars': 10},
@@ -1308,11 +1285,10 @@ TIMEFRAMES = [
     {'key': '3m',  'name': '3 Aylik',     'weight': 2.5, 'bars': 63},
 ]
 
-TIMEFRAME_HOURLY = {'key': '1h', 'name': 'Saatlik', 'weight': 0.5, 'bars': 7}  # ~1 islem gunu
+TIMEFRAME_HOURLY = {'key': '1h', 'name': 'Saatlik', 'weight': 0.5, 'bars': 7}
 
 
 def _signal_from_score(buy, sell):
-    """Alim/satim sinyal sayilarindan (sinyal, guven) uretir"""
     if buy > sell:
         return "AL", min(95, 50 + (buy - sell) * 15)
     elif sell > buy:
@@ -1321,7 +1297,6 @@ def _signal_from_score(buy, sell):
 
 
 def _dominant_driver(slice_df, rsi, macd_hist, macd_prev, vol_ratio, gap_pct):
-    """Hareketin baskin nedenini teknik faktorlerden cikarir -> (neden, etki[-3..+3])"""
     factors = []
     if rsi is not None and not math.isnan(rsi):
         if rsi >= 70:
@@ -1358,7 +1333,6 @@ def _dominant_driver(slice_df, rsi, macd_hist, macd_prev, vol_ratio, gap_pct):
 
 
 def _analyze_one_timeframe(df, tf):
-    """Tek zaman dilimi analizi -> dict (indikatorler DILIMIN KENDI penceresinde hesaplanir)"""
     bars = tf['bars']
     if df is None or len(df) < max(bars + 1, 30):
         return {'key': tf['key'], 'name': tf['name'], 'weight': tf['weight'],
@@ -1369,7 +1343,6 @@ def _analyze_one_timeframe(df, tf):
     price_then = df['Close'].iloc[-1 - bars]
     change_pct = round((price_now - price_then) / price_then * 100, 2)
 
-    # DILIME OZGU pencere: son (bars + 30) bar. Indikatorler bu pencerede hesaplanir.
     wlen = min(len(df), bars + 30)
     w = df.iloc[-wlen:]
 
@@ -1386,27 +1359,24 @@ def _analyze_one_timeframe(df, tf):
 
     gap_pct = round((w['Open'].iloc[-1] - w['Close'].iloc[-2]) / w['Close'].iloc[-2] * 100, 2) if len(w) > 1 else 0.0
 
-    # Pencere icindeki trend (dilimin kendi momentumu)
     win_change = round((w['Close'].iloc[-1] - w['Close'].iloc[0]) / w['Close'].iloc[0] * 100, 2) if len(w) > 1 else 0.0
 
     buy = 0
     sell = 0
 
-    # 1) DILIM YONU ana faktor: artis varsa AL egilimi, dusus varsa SAT egilimi
     if change_pct > 1.5:
-        buy += 2                       # Yon yukari
+        buy += 2
         if mh > 0:
-            buy += 1                   # Momentum ayni yonde
+            buy += 1
         if rsi >= 70:
-            sell += 1                  # Ama asiri alimsa dikkat
+            sell += 1
     elif change_pct < -1.5:
-        sell += 2                      # Yon asagi
+        sell += 2
         if mh < 0:
             sell += 1
         if rsi <= 30:
-            buy += 1                   # Asiri satimda tepki alimi adayi
+            buy += 1
     else:
-        # Yonsuz: klasik RSI/MACD okumasi
         if rsi < 30:
             buy += 1
         elif rsi > 70:
@@ -1416,7 +1386,6 @@ def _analyze_one_timeframe(df, tf):
         elif mh < 0:
             sell += 1
 
-    # 2) Pencere trendi dilim yonuyle uyumlu mu
     if win_change > 0 and change_pct > 0:
         buy += 1
     elif win_change < 0 and change_pct < 0:
@@ -1424,7 +1393,6 @@ def _analyze_one_timeframe(df, tf):
 
     signal, confidence = _signal_from_score(buy, sell)
 
-    # 3) Confidence'i hareket buyukluguyle olc: siddetli hareket = daha guvenilir sinyal
     magnitude = min(abs(change_pct), 15)
     confidence = round(min(95, confidence * (0.75 + magnitude / 20)), 1)
 
@@ -1436,14 +1404,13 @@ def _analyze_one_timeframe(df, tf):
 
 
 def _multiframe_analysis(symbol):
-    """Tum zaman dilimlerini analiz edip konsensus sinyali uretir"""
     if not YFINANCE_OK or not PANDAS_TA_OK:
         return None
 
     try:
         ticker = yf.Ticker(symbol)
-        df_daily = ticker.history(period="1y")    # Gunluk: tum dilimler bunu kullanir
-        df_hourly = ticker.history(period="1mo", interval="1h")  # Saatlik ayri
+        df_daily = ticker.history(period="1y")
+        df_hourly = ticker.history(period="1mo", interval="1h")
 
         if df_daily is None or df_daily.empty or len(df_daily) < 25:
             return None
@@ -1453,7 +1420,6 @@ def _multiframe_analysis(symbol):
         for tf in TIMEFRAMES:
             breakdown.append(_analyze_one_timeframe(df_daily, tf))
 
-        # Agirlikli konsensus: AL=+1, SAT=-1, BEKLE=0; guven ile carp
         score = 0.0
         total_w = 0.0
         for b in breakdown:
@@ -1472,7 +1438,6 @@ def _multiframe_analysis(symbol):
             final_signal = 'BEKLE'
         final_confidence = min(95, int(50 + abs(norm) * 60))
 
-        # Dilimler arasi uyum: ayni yonde olanlarin orani
         votes = [b for b in breakdown if b['change_pct'] is not None and b['signal'] != 'BEKLE']
         if votes:
             agree = sum(1 for b in votes if b['signal'] == final_signal) / len(votes)
@@ -1493,7 +1458,6 @@ def _multiframe_analysis(symbol):
 
 
 def _save_signal_history(conn, symbol, analysis, today):
-    """Dilim bazinda analiz kayitlarini signal_history tablosuna yazar -> (ok, hata_mesaji)"""
     try:
         cursor = conn.cursor()
         for b in analysis['timeframes']:
@@ -1519,11 +1483,6 @@ def _save_signal_history(conn, symbol, analysis, today):
 @app.route('/api/multiframe/<symbol>')
 @api_endpoint
 def multiframe_signal(symbol):
-    """
-    Cok zaman dilimli konsensus sinyali (Module 6)
-    Query params:
-    - save: 1 ise signal_history + daily_scores'a kaydeder (default 1)
-    """
     try:
         symbol = symbol.strip().upper()
         if not symbol:
@@ -1573,12 +1532,6 @@ def multiframe_signal(symbol):
 @app.route('/api/daily-scan')
 @api_endpoint
 def daily_scan():
-    """
-    Tum hisse evrenini cok zaman dilimli analizle tarar.
-    Query params:
-    - symbols: virgulle ayrilmis liste (verilmezse stocks tablosundan okur)
-    - limit: max hisse sayisi (default 20, max 100)
-    """
     try:
         symbols = []
         symbols_param = request.args.get('symbols', '')
@@ -1648,72 +1601,47 @@ def daily_scan():
 
 
 # ============================================================
-# MODUL 7: SAF PANDAS INDIKATORLERI (pandas_ta bagimliligi olmadan)
-# calc_ema / calc_macd / calc_rsi / calc_relative_volume /
-# calc_bollinger / calc_adx / calculate_technical_score
+# MODUL 7: SAF PANDAS INDIKATORLERI
 # ============================================================
 
 import pandas as pd
 
 
 def calc_ema(series, period):
-    """Ustel hareketli ortalama (EMA)"""
     return series.ewm(span=period, adjust=False).mean()
 
 
 def calc_macd(series, fast=12, slow=26, signal=9):
-    """MACD hesapla -> (macd_line, signal_line, histogram)"""
     ema_fast = calc_ema(series, fast)
     ema_slow = calc_ema(series, slow)
-
     macd_line = ema_fast - ema_slow
     signal_line = calc_ema(macd_line, signal)
     histogram = macd_line - signal_line
-
     return macd_line, signal_line, histogram
 
 
 def calc_rsi(series, period=14):
-    """Wilder RSI hesapla"""
     delta = series.diff()
-
     gain = delta.where(delta > 0, 0.0)
     loss = (-delta).where(delta < 0, 0.0)
-
-    avg_gain = gain.ewm(
-        alpha=1/period,
-        min_periods=period
-    ).mean()
-
-    avg_loss = loss.ewm(
-        alpha=1/period,
-        min_periods=period
-    ).mean()
-
+    avg_gain = gain.ewm(alpha=1/period, min_periods=period).mean()
+    avg_loss = loss.ewm(alpha=1/period, min_periods=period).mean()
     rs = avg_gain / avg_loss
-
     rsi = 100 - (100 / (1 + rs))
-
     rsi = rsi.fillna(50)
     rsi = rsi.clip(0, 100)
-
     return rsi
 
 
 def calc_relative_volume(df, period=20):
-    """Bagil hacim (RVOL): guncel hacim / donem ortalamasi"""
     if 'Volume' not in df.columns:
         return pd.Series(index=df.index, data=1.0)
-
     avg_volume = df['Volume'].rolling(period).mean()
-
     rvol = df['Volume'] / avg_volume
-
     return rvol.fillna(1.0)
 
 
 def calc_bollinger(series, period=20, num_std=2):
-    """Bollinger bantlari -> (upper, mid, lower)"""
     mid = series.rolling(period).mean()
     std = series.rolling(period).std()
     upper = mid + num_std * std
@@ -1722,7 +1650,6 @@ def calc_bollinger(series, period=20, num_std=2):
 
 
 def calc_adx(df, period=14):
-    """Average Directional Index (Wilder)"""
     high = df['High']
     low = df['Low']
     close = df['Close']
@@ -1749,48 +1676,25 @@ def calc_adx(df, period=14):
 
 
 def calculate_technical_score(df):
-    """
-    Teknik skor hesapla (0-100).
-
-    Agirliklar:
-    - RSI      : %20
-    - MACD     : %20
-    - Bollinger: %15
-    - Trend    : %20 (EMA20/EMA50)
-    - ADX      : %15
-    - RVOL     : %10
-    """
     if df is None or len(df) < 50:
         return None
 
     df = df.copy()
 
-    # Indikatorleri hesapla
     df['rsi'] = calc_rsi(df['Close'], 14)
-
-    df['macd'], \
-    df['macd_signal'], \
-    df['macd_histogram'] = calc_macd(df['Close'])
-
-    df['bb_upper'], \
-    df['bb_mid'], \
-    df['bb_lower'] = calc_bollinger(df['Close'])
-
+    df['macd'], df['macd_signal'], df['macd_histogram'] = calc_macd(df['Close'])
+    df['bb_upper'], df['bb_mid'], df['bb_lower'] = calc_bollinger(df['Close'])
     df['ema20'] = calc_ema(df['Close'], 20)
     df['ema50'] = calc_ema(df['Close'], 50)
-
     df['adx'] = calc_adx(df)
-
     df['rvol'] = calc_relative_volume(df)
 
     latest = df.iloc[-1]
 
-    # 1) RSI skoru: asiri alim -> dusuk skor, asiri satim -> yuksek skor
     rsi_val = latest.get('rsi', 50)
-    rsi_score = float(100 - rsi_val)   # rsi=30 -> 70, rsi=70 -> 30
+    rsi_score = float(100 - rsi_val)
     rsi_score = max(0.0, min(100.0, rsi_score))
 
-    # 2) MACD skoru
     macd_val = latest.get('macd', 0)
     macd_sig = latest.get('macd_signal', 0)
     histogram = latest.get('macd_histogram', 0)
@@ -1805,7 +1709,6 @@ def calculate_technical_score(df):
 
     macd_score = min(macd_score, 100)
 
-    # 3) Bollinger skoru: %b bazli (alt bant=100, ust bant=0)
     bb_upper = latest.get('bb_upper')
     bb_mid = latest.get('bb_mid')
     bb_lower = latest.get('bb_lower')
@@ -1819,12 +1722,10 @@ def calculate_technical_score(df):
     else:
         bb_score = 50
 
-    # 4) Trend skoru: EMA20 > EMA50 -> yukari trend
     ema20_val = latest.get('ema20', 0)
     ema50_val = latest.get('ema50', 0)
     trend_score = 70 if ema20_val > ema50_val else 40
 
-    # 5) ADX skoru: guclu trend daha yuksek skor
     adx_val = latest.get('adx', 0)
     if adx_val > 25:
         adx_score = 75
@@ -1833,7 +1734,6 @@ def calculate_technical_score(df):
     else:
         adx_score = 40
 
-    # 6) RVOL skoru
     rvol_val = latest.get('rvol', 1)
 
     if rvol_val > 2:
@@ -1845,7 +1745,6 @@ def calculate_technical_score(df):
     else:
         rvol_score = 40
 
-    # 7) Teknik skor (agirlikli toplam)
     technical = int(
         rsi_score * 0.20 +
         macd_score * 0.20 +
@@ -1856,7 +1755,6 @@ def calculate_technical_score(df):
     )
     technical = max(0, min(100, technical))
 
-    # 8) Detaylar
     details = {
         'rsi': round(float(rsi_val), 2) if not pd.isna(rsi_val) else 50.0,
         'macd': round(float(macd_val), 4) if not pd.isna(macd_val) else 0.0,
@@ -1883,10 +1781,9 @@ def calculate_technical_score(df):
 
 
 # ============================================================
-# API ENDPOINT - HAFTALIK OZET (GUNLUK vs HAFTALIK KARSILASTIRMA)
+# API ENDPOINT - HAFTALIK OZET
 # ============================================================
 def _period_stats(cursor, period):
-    """Belirli bir period ('daily' / 'weekly') icin istatistik ozetler"""
     cursor.execute("""
         SELECT
             COUNT(*) AS total,
@@ -1911,7 +1808,7 @@ def _period_stats(cursor, period):
         "total_predictions": total,
         "completed_predictions": completed,
         "success_rate": success_rate,
-        "avg_error": round(row.get('avg_error') or 0, 2),
+        "avg_error": round(float(row.get('avg_error')) if row.get('avg_error') is not None else 0.0, 2),
         "technical_error_count": row.get('technical_errors') or 0,
         "sector_error_count": row.get('sector_errors') or 0,
         "macro_error_count": row.get('macro_errors') or 0
@@ -1919,7 +1816,6 @@ def _period_stats(cursor, period):
 
 
 def _serialize_row_dates(rows):
-    """dictfetchall sonuclarindaki date/datetime alanlarini JSON-uyumlu stringe cevirir"""
     for r in rows:
         if 'date' in r and r['date'] is not None:
             r['date'] = str(r['date'])
@@ -1927,18 +1823,12 @@ def _serialize_row_dates(rows):
 
 
 def get_weekly_summary():
-    """
-    predictions tablosundan gunluk/haftalik istatistikleri, son haftalik
-    tahminleri ve hata dagilimini tek bir JSON-uyumlu dictionary'de toplar.
-    """
     with get_db() as conn:
         cursor = conn.cursor()
 
-        # 1) Gunluk ve haftalik istatistikler
         daily_stats = _period_stats(cursor, 'daily')
         weekly_stats = _period_stats(cursor, 'weekly')
 
-        # 2) Son haftalik tahminler (yaklasik son 4 hafta)
         cursor.execute("""
             SELECT TOP 40 symbol, date, prediction_signal, predicted_return,
                    actual_return, error_code
@@ -1948,7 +1838,6 @@ def get_weekly_summary():
         """)
         recent_weekly = _serialize_row_dates(dictfetchall(cursor))
 
-        # 3) Hata kodu dagilimi (M1/H1/S1/T1/R1/B1/C1/A1)
         cursor.execute("""
             SELECT error_code, COUNT(*) AS count
             FROM predictions
@@ -2000,7 +1889,6 @@ if __name__ == '__main__':
     print("  3. python app_mssql.py (API'yi baslat)")
     print("=" * 60)
 
-    # predictions tablosunda 'period' sutunu yoksa ekle (veri kaybi olmadan)
     try:
         with get_db() as _conn:
             ensure_period_column(_conn)
