@@ -14,8 +14,13 @@ from datetime import datetime, timedelta
 import random
 import time
 
+from universe import SYMBOL_UNIVERSE
+
+# Uyumluluk: eski kod SYMBOLS adini kullaniyordu.
+SYMBOLS = SYMBOL_UNIVERSE
+
 # ---------------------------------------------------------------------------
-# 1. ADIM - Guvenli baglanti
+# 1. ADIM - Guvenli baglanti  (DEGISTIRILMEDI)
 # ---------------------------------------------------------------------------
 APP_ENV = os.getenv("ARFEZ_ENV", "development").strip().lower()
 if APP_ENV != "development":
@@ -71,7 +76,7 @@ def run(cursor, sql, params=None, max_retries=5):
 
 
 # ---------------------------------------------------------------------------
-# 2. ADIM - seed_stocks: DELETE kaldirildi, IF NOT EXISTS eklendi
+# 2. ADIM - seed_stocks (inserted/skipped/before kaldirildi)
 # ---------------------------------------------------------------------------
 def seed_stocks(cursor):
     stocks = [
@@ -305,12 +310,9 @@ def seed_stocks(cursor):
         ('ZTS', 'ZOETIS INC', 'Healthcare'),
     ]
 
-    inserted = 0
-    skipped = 0
     for s in stocks:
-        # 2. ADIM: Toplu DELETE yok; yalnizca olmayan sembolleri ekle.
+        # Toplu DELETE yok; yalnizca olmayan sembolleri ekle.
         # NOT: Bu yaklasim mevcut sembollerin name/sector bilgisini GUNCELLEMEZ.
-        before = cursor.rowcount
         run(
             cursor,
             """
@@ -320,43 +322,16 @@ def seed_stocks(cursor):
             """,
             (s[0], s[0], s[1], s[2]),
         )
-        # rowcount INSERT olduysa +1 doner, olmadiysa -1/0 olabilir; kesin sayim icin
-        # basitce ikinci bir sorgu ile kontrol edilebilir ama performans icin atliyoruz.
     print("[OK] stocks: {} sembol kontrol edildi (mevcut olanlara dokunulmadi)".format(len(stocks)))
 
 
 # ---------------------------------------------------------------------------
-# 3. ADIM - seed_daily_scores: DELETE kaldirildi, NOT EXISTS ile mükerrer engellendi
+# 3. ADIM - seed_daily_scores (yerel liste kaldirildi, SYMBOLS kullaniliyor)
 # ---------------------------------------------------------------------------
 def seed_daily_scores(cursor):
-    symbols = [
-        'ABT', 'AKR', 'AAMI', 'ACMR', 'ADEA', 'ADBE', 'AMD', 'AKTS', 'ALMR', 'ALLY',
-        'GOOGL', 'AMZN', 'AMTM', 'AS', 'AEP', 'AHR', 'AIG', 'ANDG', 'APGE', 'APO',
-        'AAPL', 'AADX', 'ADM', 'ACA', 'ARES', 'ATI', 'TEAM', 'AVLN', 'BKU', 'BRK-B',
-        'BGC', 'BILL', 'TECH', 'BX', 'OBDC', 'OWL', 'BOTZ', 'BWA', 'BHF', 'AVGO',
-        'BG', 'CZR', 'CCJ', 'CEPV', 'COF', 'CTRE', 'CG', 'CRS', 'CPRX', 'CX',
-        'CBRS', 'GTLS', 'CB', 'CFG', 'NET', 'CME', 'CMS', 'KO', 'CEG', 'CNM',
-        'CORZ', 'CRBG', 'CRWV', 'CPNG', 'CRH', 'DDOG', 'DLR', 'DBRG', 'DIS', 'D',
-        'DASH', 'DPC', 'ENRD', 'EA', 'LLY', 'EME', 'ETR', 'EROC', 'ESPR', 'ETSY',
-        'ES', 'EVGO', 'FVR', 'FIGR', 'FSLR', 'FE', 'FBC', 'FPS', 'FCX', 'GLXY',
-        'GFL', 'GBTG', 'SJW', 'Hawk', 'COAG', 'HTZ', 'HONA', 'HON', 'HUBG', 'HUM',
-        'HUN', 'IDA', 'PI', 'INGM', 'INNO', 'INTC', 'IBKR', 'EMXC', 'MUB', 'ITRI',
-        'ITT', 'J', 'JAN', 'JNJ', 'JPM', 'KLRA', 'KARD', 'KEEL', 'KVUE', 'KRG',
-        'KKR', 'KDK', 'KWEB', 'LGN', 'LIFT', 'LINC', 'LIN', 'LCID', 'MAC', 'MASI',
-        'MRVL', 'MTZ', 'MA', 'MTRN', 'MCD', 'MDLN', 'META', 'MCB', 'MGEE', 'MGM',
-        'MCHP', 'MU', 'MSFT', 'MFIC', 'MIDD', 'MS', 'NATL', 'NBIS', 'NPI', 'NFLX',
-        'NOC', 'NUVL', 'NVDA', 'ON', 'PZZA', 'PAYO', 'PM', 'PNFP', 'PONY', 'POR',
-        'PPL', 'PRIM', 'PGR', 'PEG', 'QNTM', 'QXO', 'RDNT', 'USAR', 'RBC', 'RDDT',
-        'ROKU', 'RUSHA', 'RSI', 'SPGI', 'XLF', 'SRE', 'NOW', 'SNAI', 'SILA', 'SITM',
-        'SW', 'SNOW', 'SOLV', 'SGI', 'SFST', 'SPSB', 'SARO', 'SPY', 'STLA', 'STM',
-        'SUNB', 'RUN', 'SMCI', 'TE', 'TSM', 'TLN', 'TALK', 'TMHC', 'TNC', 'TEX',
-        'TSLA', 'TXN', 'TKR', 'TKO', 'BLD', 'TPG', 'UBER', 'ULS', 'UNH', 'VRNS',
-        'VRSK', 'VZ', 'VSGN', 'VSH', 'VST', 'VSEC', 'WMT', 'WBD', 'WBS', 'WEC',
-        'WIX', 'WWD', 'XEL', 'XE', 'YSWY', 'YSS', 'ZETA', 'ZTS',
-    ]
     today = datetime.now().strftime('%Y-%m-%d')
 
-    for sym in symbols:
+    for sym in SYMBOLS:
         arfez = random.randint(45, 98)
         final = min(arfez + random.randint(-10, 5), 100)
         signal = 'AL' if final >= 80 else 'SAT' if final < 50 else 'BEKLE'
@@ -380,11 +355,11 @@ def seed_daily_scores(cursor):
             random.randint(40, 85), random.randint(50, 90), random.randint(45, 88),
             random.randint(55, 92), final, signal, target, stop, expected,
         ))
-    print("[OK] daily_scores: {} sembol icin gunluk skor kontrol edildi ({})".format(len(symbols), today))
+    print("[OK] daily_scores: {} sembol icin gunluk skor kontrol edildi ({})".format(len(SYMBOLS), today))
 
 
 # ---------------------------------------------------------------------------
-# 3. ADIM - seed_macro: DELETE kaldirildi, NOT EXISTS(date)
+# 3. ADIM - seed_macro
 # ---------------------------------------------------------------------------
 def seed_macro(cursor):
     today = datetime.now().strftime('%Y-%m-%d')
@@ -403,7 +378,7 @@ def seed_macro(cursor):
 
 
 # ---------------------------------------------------------------------------
-# 3. ADIM - seed_pipeline: DELETE kaldirildi, NOT EXISTS(date, step_name)
+# 3. ADIM - seed_pipeline
 # ---------------------------------------------------------------------------
 def seed_pipeline(cursor):
     today = datetime.now().strftime('%Y-%m-%d')
@@ -431,7 +406,7 @@ def seed_pipeline(cursor):
 
 
 # ---------------------------------------------------------------------------
-# 3. ADIM - seed_fund_holdings: DELETE kaldirildi, NOT EXISTS(fund, symbol, quarter)
+# 3. ADIM - seed_fund_holdings (count korundu, log'da kullaniliyor)
 # ---------------------------------------------------------------------------
 def seed_fund_holdings(cursor):
     funds = ["Buffett", "Soros", "Druckenmiller", "Tepper", "Ackman",
@@ -459,7 +434,7 @@ def seed_fund_holdings(cursor):
 
 
 # ---------------------------------------------------------------------------
-# 3. ADIM - seed_predictions: DELETE kaldirildi, NOT EXISTS ile mükerrer azaltildi
+# 3. ADIM - seed_predictions (inserted kaldirildi, fonksiyon tamamlandi)
 # ---------------------------------------------------------------------------
 def seed_predictions(cursor):
     symbols = ["NVDA", "PLTR", "MSFT", "AAPL", "TSLA"]
@@ -475,9 +450,17 @@ def seed_predictions(cursor):
         "C1": 7,   # Cross-Asset hatasi
     }
 
-    inserted = 0
-
     for error_code, count in initial_errors.items():
         for _ in range(count):
             sym = random.choice(symbols)
-            date = (datetime.now() - timedelta(days=random.randint(1, 90))).strftime("%Y-%m-%
+            date = (datetime.now() - timedelta(days=random.randint(1, 90))).strftime("%Y-%m-%d")
+            run(cursor, """
+                IF NOT EXISTS (
+                    SELECT 1 FROM prediction_errors
+                    WHERE symbol = ? AND date = ? AND error_code = ?
+                )
+                INSERT INTO prediction_errors (symbol, date, error_code)
+                VALUES (?, ?, ?)
+            """, (sym, date, error_code, sym, date, error_code))
+    print("[OK] prediction_errors: {} hata kodu kontrol edildi/eklendi".format(
+        len(initial_errors)))
