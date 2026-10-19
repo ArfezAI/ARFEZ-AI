@@ -4,6 +4,8 @@ import pyodbc
 import os
 import sys
 import traceback
+import math
+import pandas as pd
 from datetime import datetime, date as _date, datetime as _dt
 from decimal import Decimal
 from contextlib import contextmanager
@@ -168,39 +170,37 @@ def serve_index():
 @app.route('/api/scores')
 @api_endpoint
 def scores():
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            today = datetime.now().strftime('%Y-%m-%d')
-            cursor.execute(
-                "SELECT TOP 1 * FROM daily_scores WHERE date = ? ORDER BY final_score DESC",
-                (today,)
-            )
-            row = dictfetchone(cursor)
-            cursor.close()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        today = datetime.now().strftime('%Y-%m-%d')
+        cursor.execute(
+            "SELECT TOP 1 * FROM daily_scores WHERE date = ? ORDER BY final_score DESC",
+            (today,)
+        )
+        row = dictfetchone(cursor)
+        cursor.close()
 
-            if row:
-                return jsonify({
-                    "arfez_score": row.get('arfez_score', 0),
-                    "new_world": row.get('new_world', 0),
-                    "technical": row.get('technical', 0),
-                    "fundamental": row.get('fundamental', 0),
-                    "risk": row.get('risk', 0),
-                    "confidence": row.get('confidence', 0),
-                    "macro": row.get('macro', 0),
-                    "valuation": row.get('valuation', 0),
-                    "capital_flow": row.get('capital_flow', 0),
-                    "theme": row.get('theme', 0),
-                    "final": row.get('final_score', 0),
-                    "timestamp": datetime.now().isoformat()
-                })
+        if row:
+            return jsonify({
+                "arfez_score": row.get('arfez_score') or 0,
+                "new_world": row.get('new_world') or 0,
+                "technical": row.get('technical') or 0,
+                "fundamental": row.get('fundamental') or 0,
+                "risk": row.get('risk') or 0,
+                "confidence": row.get('confidence') or 0,
+                "macro": row.get('macro') or 0,
+                "valuation": row.get('valuation') or 0,
+                "capital_flow": row.get('capital_flow') or 0,
+                "theme": row.get('theme') or 0,
+                "final": row.get('final_score') or 0,
+                "timestamp": datetime.now().isoformat(),
+                "is_live_fallback": False
+            })
 
-            if YFINANCE_OK:
-                return fetch_live_scores()
+        if YFINANCE_OK:
+            return fetch_live_scores()
 
-            return jsonify({"error": "Veri bulunamadi ve canli kaynak devre disi"}), 503
-    except pyodbc.Error as e:
-        return jsonify({"error": "Veritabanina baglanilamadi", "detail": str(e)}), 503
+        return jsonify({"error": "Veri bulunamadi ve canli kaynak devre disi"}), 503
 
 def fetch_live_scores():
     """DB bosken hizli canli skor uret (SPY uzerinden)"""
@@ -225,55 +225,53 @@ def fetch_live_scores():
             "risk": 70, "confidence": 75, "macro": 60,
             "valuation": 55, "capital_flow": 65, "theme": 70,
             "final": technical, "timestamp": datetime.now().isoformat(),
-            "source": "live_fallback"
+            "source": "live_fallback",
+            "is_live_fallback": True
         })
     except Exception as e:
         return jsonify({"error": "Canli skor uretilemedi", "detail": str(e)}), 503
 
 # ============================================================
-# 2. STOCKS - Hisse evreni (DB'den)  [DUZELTILDI]
+# 2. STOCKS - Hisse evreni (DB'den)
 # ============================================================
 @app.route('/api/stocks')
 @api_endpoint
 def stocks():
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            today = datetime.now().strftime('%Y-%m-%d')
-            cursor.execute("""
-                SELECT s.symbol, s.name, s.sector, d.arfez_score, d.final_score,
-                       d.signal, d.target_price, d.stop_loss, d.expected_return
-                FROM stocks s
-                LEFT JOIN daily_scores d ON s.symbol = d.symbol AND d.date = ?
-                ORDER BY ISNULL(d.final_score, 0) DESC
-            """, (today,))
-            rows = dictfetchall(cursor)
-            cursor.close()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        today = datetime.now().strftime('%Y-%m-%d')
+        cursor.execute("""
+            SELECT s.symbol, s.name, s.sector, d.arfez_score, d.final_score,
+                   d.signal, d.target_price, d.stop_loss, d.expected_return
+            FROM stocks s
+            LEFT JOIN daily_scores d ON s.symbol = d.symbol AND d.date = ?
+            ORDER BY ISNULL(d.final_score, 0) DESC
+        """, (today,))
+        rows = dictfetchall(cursor)
+        cursor.close()
 
-            # DB bos ise canli fallback
-            if not rows and YFINANCE_OK:
-                return fetch_live_stocks()
+        # DB bos ise canli fallback
+        if not rows and YFINANCE_OK:
+            return fetch_live_stocks()
 
-            # DB dolu ise satirlari dogrudan JSON'a cevir
-            result = []
-            for r in rows:
-                result.append({
-                    "symbol": r.get('symbol'),
-                    "name": r.get('name'),
-                    "sector": r.get('sector'),
-                    "arfez_score": r.get('arfez_score') or 0,
-                    "final_score": r.get('final_score') or 0,
-                    "signal": r.get('signal') or "BEKLE",
-                    "target": r.get('target_price'),
-                    "stop": r.get('stop_loss'),
-                    "expected_return": r.get('expected_return'),
-                    # Yeni alanlar (DB'de henuz yok, null donuyor)
-                    "current_price": None,
-                    "fair_value": None
-                })
-            return jsonify(result)
-    except pyodbc.Error as e:
-        return jsonify({"error": "Veritabanina baglanilamadi", "detail": str(e)}), 503
+        # DB dolu ise satirlari dogrudan JSON'a cevir
+        result = []
+        for r in rows:
+            result.append({
+                "symbol": r.get('symbol'),
+                "name": r.get('name'),
+                "sector": r.get('sector'),
+                "arfez_score": r.get('arfez_score') or 0,
+                "final_score": r.get('final_score') or 0,
+                "signal": r.get('signal') or "BEKLE",
+                "target": r.get('target_price'),
+                "stop": r.get('stop_loss'),
+                "expected_return": r.get('expected_return'),
+                "current_price": None,
+                "fair_value": None,
+                "is_live_fallback": False
+            })
+        return jsonify(result)
 
 def fetch_live_stocks():
     """DB bosken populer hisseleri canli cek"""
@@ -307,7 +305,8 @@ def fetch_live_stocks():
                     "expected_return": change,
                     "current_price": price,
                     "fair_value": None,
-                    "source": "live_fallback"
+                    "source": "live_fallback",
+                    "is_live_fallback": True
                 })
             except Exception:
                 continue
@@ -321,133 +320,126 @@ def fetch_live_stocks():
 @app.route('/api/watchlist')
 @api_endpoint
 def watchlist():
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            today = datetime.now().strftime('%Y-%m-%d')
-            cursor.execute("SELECT COUNT(*) FROM stocks")
-            total = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM daily_scores WHERE date = ? AND final_score >= 70", (today,))
-            filtered = cursor.fetchone()[0]
-            cursor.execute("SELECT TOP 3 symbol FROM daily_scores WHERE date = ? AND signal = 'AL' ORDER BY final_score DESC", (today,))
-            top_picks = [r[0] for r in cursor.fetchall()]
-            cursor.close()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        today = datetime.now().strftime('%Y-%m-%d')
+        cursor.execute("SELECT COUNT(*) FROM stocks")
+        total = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM daily_scores WHERE date = ? AND final_score >= 70", (today,))
+        filtered = cursor.fetchone()[0]
+        cursor.execute("SELECT TOP 3 symbol FROM daily_scores WHERE date = ? AND signal = 'AL' ORDER BY final_score DESC", (today,))
+        top_picks = [r[0] for r in cursor.fetchall()]
+        cursor.close()
 
-            return jsonify({
-                "universe": total or 45,
-                "filter_1": total or 45,
-                "technical": int(total * 0.6) if total else 27,
-                "fundamental": int(total * 0.3) if total else 13,
-                "macro": int(total * 0.15) if total else 7,
-                "cross_asset": int(total * 0.08) if total else 4,
-                "risk_reward": int(total * 0.04) if total else 2,
-                "confidence": len(top_picks) or 1,
-                "final_pick": filtered or 0,
-                "top_picks": top_picks or ["NVDA", "MSFT", "PLTR"]
-            })
-    except pyodbc.Error as e:
-        return jsonify({"error": "Veritabanina baglanilamadi", "detail": str(e)}), 503
+        return jsonify({
+            "universe": total or 45,
+            "filter_1": total or 45,
+            "technical": int(total * 0.6) if total else 27,
+            "fundamental": int(total * 0.3) if total else 13,
+            "macro": int(total * 0.15) if total else 7,
+            "cross_asset": int(total * 0.08) if total else 4,
+            "risk_reward": int(total * 0.04) if total else 2,
+            "confidence": len(top_picks) or 1,
+            "final_pick": filtered or 0,
+            "top_picks": top_picks or ["NVDA", "MSFT", "PLTR"]
+        })
 
 # ============================================================
-# 4. ELITE FUNDS - DB'den  [DUZELTILDI - Decimal/float]
+# 4. ELITE FUNDS - DB'den  [Decimal/float]
 # ============================================================
 @app.route('/api/elite-funds')
 @api_endpoint
 def elite_funds():
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT fund_name, symbol, weight, change_qoq
-                FROM fund_holdings
-                WHERE quarter = '2026Q2'
-                ORDER BY weight DESC
-            """)
-            rows = dictfetchall(cursor)   # _json_safe: Decimal -> float
-            cursor.close()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT fund_name, symbol, weight, change_qoq
+            FROM fund_holdings
+            WHERE quarter = '2026Q2'
+            ORDER BY weight DESC
+        """)
+        rows = dictfetchall(cursor)   # _json_safe: Decimal -> float
+        cursor.close()
 
-            if not rows:
-                return jsonify({"funds": [], "holdings": {}, "consensus": {}})
+        if not rows:
+            return jsonify({"funds": [], "holdings": {}, "consensus": {}})
 
-            funds = {}
-            consensus = {}
-            for r in rows:
-                # _json_safe zaten float yapti, ama savunma amacli float() ile zorla
-                w = float(r['weight']) if r.get('weight') is not None else 0.0
-                chg = float(r['change_qoq']) if r.get('change_qoq') is not None else 0.0
+        funds = {}
+        consensus = {}
+        for r in rows:
+            w = float(r['weight']) if r.get('weight') is not None else 0.0
+            chg = float(r['change_qoq']) if r.get('change_qoq') is not None else 0.0
 
-                funds.setdefault(r['fund_name'], []).append(r['symbol'])
+            funds.setdefault(r['fund_name'], []).append(r['symbol'])
 
-                c = consensus.setdefault(
-                    r['symbol'],
-                    {"buy": 0, "sell": 0, "avg_weight": 0.0, "count": 0}
-                )
-                c['count'] += 1
-                c['avg_weight'] += w          # float + float -> OK
-                if chg > 0:
-                    c['buy'] += 1
-                else:
-                    c['sell'] += 1
+            c = consensus.setdefault(
+                r['symbol'],
+                {"buy": 0, "sell": 0, "avg_weight": 0.0, "count": 0}
+            )
+            c['count'] += 1
+            c['avg_weight'] += w
+            if chg > 0:
+                c['buy'] += 1
+            else:
+                c['sell'] += 1
 
-            for sym in consensus:
-                c = consensus[sym]
-                if c['count'] > 0:
-                    c['avg_weight'] = round(c['avg_weight'] / c['count'], 2)
+        for sym in consensus:
+            c = consensus[sym]
+            if c['count'] > 0:
+                c['avg_weight'] = round(c['avg_weight'] / c['count'], 2)
 
-            return jsonify({
-                "funds": list(funds.keys()),
-                "holdings": funds,
-                "consensus": consensus
-            })
-    except pyodbc.Error as e:
-        return jsonify({"error": "Veritabanina baglanilamadi", "detail": str(e)}), 503
+        return jsonify({
+            "funds": list(funds.keys()),
+            "holdings": funds,
+            "consensus": consensus
+        })
 
 # ============================================================
-# 5. BACKTEST - DB'den gercek metrikler  [DUZELTILDI]
+# 5. BACKTEST - DB'den gercek metrikler  [hardcoded kaldirildi]
 # ============================================================
 @app.route('/api/backtest')
 @api_endpoint
 def backtest():
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT
-                    COUNT(*) as total,
-                    SUM(CASE WHEN target_hit = 1 THEN 1 ELSE 0 END) as targets,
-                    SUM(CASE WHEN stop_hit = 1 THEN 1 ELSE 0 END) as stops,
-                    AVG(ISNULL(actual_return, 0)) as avg_return
-                FROM predictions
-            """)
-            row = cursor.fetchone()
-            cursor.close()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN target_hit = 1 THEN 1 ELSE 0 END) as targets,
+                SUM(CASE WHEN stop_hit = 1 THEN 1 ELSE 0 END) as stops,
+                AVG(ISNULL(actual_return, 0)) as avg_return
+            FROM predictions
+        """)
+        row = cursor.fetchone()
+        cursor.close()
 
-            total = int(row[0] or 1)
-            targets = int(row[1] or 0)
-            stops = int(row[2] or 0)
-            # AVG(actual_return) DECIMAL doner -> float'a cevir
-            avg_ret = float(row[3]) if row[3] is not None else 0.0
+        total = int(row[0] or 1)
+        targets = int(row[1] or 0)
+        stops = int(row[2] or 0)
+        avg_ret = float(row[3]) if row[3] is not None else 0.0
 
-            target_rate = round(targets / total * 100, 1)
-            stop_rate = round(stops / total * 100, 1)
+        target_rate = round(targets / total * 100, 1)
+        stop_rate = round(stops / total * 100, 1)
 
-            return jsonify({
-                "direction_accuracy": 72.4,
-                "target_hit_rate": target_rate,
-                "stop_hit_rate": stop_rate,
-                "avg_return": round(avg_ret, 2),
-                "band_accuracy": 64.1,
-                "calibration_error": 4.2,
-                "max_drawdown": -8.4,
-                "sharpe": 1.34,
-                "sortino": 1.87,
-                "total_predictions": total,
-                "analyzed_errors": 342,
-                "resolved_rules": 28,
-                "calibration_improvement": 6.3
-            })
-    except pyodbc.Error as e:
-        return jsonify({"error": "Veritabanina baglanilamadi", "detail": str(e)}), 503
+        # NOT: direction_accuracy, band_accuracy, calibration_error,
+        # max_drawdown, sharpe, sortino, analyzed_errors, resolved_rules,
+        # calibration_improvement hardcoded degerleri KALDIRILDI.
+        # Faz 3'te gercek hesaplama eklenecek.
+        return jsonify({
+            "direction_accuracy": None,
+            "target_hit_rate": target_rate,
+            "stop_hit_rate": stop_rate,
+            "avg_return": round(avg_ret, 2),
+            "band_accuracy": None,
+            "calibration_error": None,
+            "max_drawdown": None,
+            "sharpe": None,
+            "sortino": None,
+            "total_predictions": total,
+            "analyzed_errors": None,
+            "resolved_rules": None,
+            "calibration_improvement": None
+        })
 
 # ============================================================
 # 6. PIPELINE - DB'den
@@ -455,37 +447,34 @@ def backtest():
 @app.route('/api/pipeline')
 @api_endpoint
 def pipeline():
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            today = datetime.now().strftime('%Y-%m-%d')
-            cursor.execute("SELECT * FROM pipeline_status WHERE date = ?", (today,))
-            rows = dictfetchall(cursor)
-            cursor.close()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        today = datetime.now().strftime('%Y-%m-%d')
+        cursor.execute("SELECT * FROM pipeline_status WHERE date = ?", (today,))
+        rows = dictfetchall(cursor)
+        cursor.close()
 
-            if rows:
-                steps = [{"name": r['step_name'], "status": r['status'], "time": r.get('time', '')} for r in rows]
-            else:
-                steps = [
-                    {"name": "Makro Tarama", "status": "waiting"},
-                    {"name": "Rejim Belirleme", "status": "waiting"},
-                    {"name": "Tema Analizi", "status": "waiting"},
-                    {"name": "New World Radar", "status": "waiting"},
-                    {"name": "Opportunity Engine", "status": "waiting"},
-                    {"name": "Fundamental Analiz", "status": "waiting"},
-                    {"name": "Options Analizi", "status": "waiting"},
-                    {"name": "Risk Degerlendirmesi", "status": "waiting"},
-                    {"name": "Confidence Kalibrasyonu", "status": "waiting"},
-                    {"name": "Final Decision", "status": "waiting"}
-                ]
+        if rows:
+            steps = [{"name": r['step_name'], "status": r['status'], "time": r.get('time', '')} for r in rows]
+        else:
+            steps = [
+                {"name": "Makro Tarama", "status": "waiting"},
+                {"name": "Rejim Belirleme", "status": "waiting"},
+                {"name": "Tema Analizi", "status": "waiting"},
+                {"name": "New World Radar", "status": "waiting"},
+                {"name": "Opportunity Engine", "status": "waiting"},
+                {"name": "Fundamental Analiz", "status": "waiting"},
+                {"name": "Options Analizi", "status": "waiting"},
+                {"name": "Risk Degerlendirmesi", "status": "waiting"},
+                {"name": "Confidence Kalibrasyonu", "status": "waiting"},
+                {"name": "Final Decision", "status": "waiting"}
+            ]
 
-            return jsonify({
-                "steps": steps,
-                "regime_checks": {"09:30": "waiting", "12:00": "waiting", "14:00": "waiting", "15:30": "waiting"},
-                "alarms": {"vix_yellow": False, "vix_red": False, "dxy_spike": False, "sector_drop": False}
-            })
-    except pyodbc.Error as e:
-        return jsonify({"error": "Veritabanina baglanilamadi", "detail": str(e)}), 503
+        return jsonify({
+            "steps": steps,
+            "regime_checks": {"09:30": "waiting", "12:00": "waiting", "14:00": "waiting", "15:30": "waiting"},
+            "alarms": {"vix_yellow": False, "vix_red": False, "dxy_spike": False, "sector_drop": False}
+        })
 
 # ============================================================
 # 7. MACRO - DB'den gercek veri
@@ -493,30 +482,28 @@ def pipeline():
 @app.route('/api/macro')
 @api_endpoint
 def macro():
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT TOP 1 * FROM macro_data ORDER BY date DESC")
-            row = dictfetchone(cursor)
-            cursor.close()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT TOP 1 * FROM macro_data ORDER BY date DESC")
+        row = dictfetchone(cursor)
+        cursor.close()
 
-            if row:
-                return jsonify({
-                    "vix": float(row['vix']) if row['vix'] else 18.0,
-                    "dxy": float(row['dxy']) if row['dxy'] else 103.0,
-                    "us10y": float(row['us10y']) if row['us10y'] else 4.2,
-                    "sp500": float(row['sp500']) if row['sp500'] else 5800.0,
-                    "nasdaq": float(row['nasdaq']) if row['nasdaq'] else 18500.0,
-                    "regime": row['regime'] or "neutral",
-                    "date": str(row['date'])
-                })
+        if row:
+            return jsonify({
+                "vix": float(row['vix']) if row['vix'] else 18.0,
+                "dxy": float(row['dxy']) if row['dxy'] else 103.0,
+                "us10y": float(row['us10y']) if row['us10y'] else 4.2,
+                "sp500": float(row['sp500']) if row['sp500'] else 5800.0,
+                "nasdaq": float(row['nasdaq']) if row['nasdaq'] else 18500.0,
+                "regime": row['regime'] or "neutral",
+                "date": str(row['date']),
+                "is_live_fallback": False
+            })
 
-            if YFINANCE_OK:
-                return fetch_live_macro()
+        if YFINANCE_OK:
+            return fetch_live_macro()
 
-            return jsonify({"error": "Makro verisi bulunamadi"}), 503
-    except pyodbc.Error as e:
-        return jsonify({"error": "Veritabanina baglanilamadi", "detail": str(e)}), 503
+        return jsonify({"error": "Makro verisi bulunamadi"}), 503
 
 def fetch_live_macro():
     try:
@@ -532,7 +519,8 @@ def fetch_live_macro():
             "us10y": round(float(tnx), 2), "sp500": round(float(spx), 2),
             "nasdaq": round(float(ndx), 2), "regime": regime,
             "date": datetime.now().strftime('%Y-%m-%d'),
-            "source": "live_fallback"
+            "source": "live_fallback",
+            "is_live_fallback": True
         })
     except Exception as e:
         return jsonify({"error": "Canli makro verisi alinamadi", "detail": str(e)}), 503
@@ -544,40 +532,34 @@ def fetch_live_macro():
 @api_endpoint
 def memory():
     category = request.args.get('category', 'all')
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            if category == 'all':
-                cursor.execute("SELECT TOP 20 * FROM memory_logs ORDER BY created_at DESC")
-            else:
-                cursor.execute("SELECT TOP 20 * FROM memory_logs WHERE category = ? ORDER BY created_at DESC", (category,))
-            rows = dictfetchall(cursor)
-            cursor.close()
-            return jsonify(rows)
-    except pyodbc.Error as e:
-        return jsonify({"error": "Veritabanina baglanilamadi", "detail": str(e)}), 503
+    with get_db() as conn:
+        cursor = conn.cursor()
+        if category == 'all':
+            cursor.execute("SELECT TOP 20 * FROM memory_logs ORDER BY created_at DESC")
+        else:
+            cursor.execute("SELECT TOP 20 * FROM memory_logs WHERE category = ? ORDER BY created_at DESC", (category,))
+        rows = dictfetchall(cursor)
+        cursor.close()
+        return jsonify(rows)
 
 @app.route('/api/memory/stats')
 @api_endpoint
 def memory_stats():
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM predictions")
-            total = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM predictions WHERE error_code IS NOT NULL")
-            errors = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(DISTINCT error_code) FROM predictions WHERE error_code IS NOT NULL")
-            rules = cursor.fetchone()[0]
-            cursor.close()
-            return jsonify({
-                "total_predictions": total,
-                "analyzed_errors": errors,
-                "resolved_rules": rules,
-                "calibration_improvement": 6.3
-            })
-    except pyodbc.Error as e:
-        return jsonify({"error": "Veritabanina baglanilamadi", "detail": str(e)}), 503
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM predictions")
+        total = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM predictions WHERE error_code IS NOT NULL")
+        errors = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(DISTINCT error_code) FROM predictions WHERE error_code IS NOT NULL")
+        rules = cursor.fetchone()[0]
+        cursor.close()
+        return jsonify({
+            "total_predictions": total,
+            "analyzed_errors": errors,
+            "resolved_rules": rules,
+            "calibration_improvement": None
+        })
 
 # ============================================================
 # 9. KNOWLEDGE GRAPH - Statik
@@ -619,28 +601,26 @@ def stock_detail(symbol):
     if not symbol.replace('-', '').replace('.', '').isalnum():
         return jsonify({"error": "symbol sadece harf, rakam, çizgi ve nokta içerebilir"}), 400
 
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            today = datetime.now().strftime('%Y-%m-%d')
-            cursor.execute("SELECT * FROM stocks WHERE symbol = ?", (symbol,))
-            stock = dictfetchone(cursor)
-            cursor.execute("SELECT * FROM daily_scores WHERE symbol = ? AND date = ?", (symbol, today))
-            scores = dictfetchone(cursor)
-            cursor.close()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        today = datetime.now().strftime('%Y-%m-%d')
+        cursor.execute("SELECT * FROM stocks WHERE symbol = ?", (symbol,))
+        stock = dictfetchone(cursor)
+        cursor.execute("SELECT * FROM daily_scores WHERE symbol = ? AND date = ?", (symbol, today))
+        scores = dictfetchone(cursor)
+        cursor.close()
 
-            if stock or scores:
-                result = stock if stock else {"symbol": symbol}
-                if scores:
-                    result.update({k: scores[k] for k in scores})
-                return jsonify(result)
+        if stock or scores:
+            result = stock if stock else {"symbol": symbol}
+            if scores:
+                result.update({k: scores[k] for k in scores})
+            result["is_live_fallback"] = False
+            return jsonify(result)
 
-            if YFINANCE_OK:
-                return fetch_live_stock_detail(symbol)
+        if YFINANCE_OK:
+            return fetch_live_stock_detail(symbol)
 
-            return jsonify({"error": f"{symbol} hissesi bulunamadi"}), 404
-    except pyodbc.Error as e:
-        return jsonify({"error": "Veritabanina baglanilamadi", "detail": str(e)}), 503
+        return jsonify({"error": f"{symbol} hissesi bulunamadi"}), 404
 
 def fetch_live_stock_detail(symbol):
     try:
@@ -659,6 +639,7 @@ def fetch_live_stock_detail(symbol):
             "market_cap": info.get('marketCap'),
             "pe_ratio": info.get('trailingPE'),
             "source": "live_fallback",
+            "is_live_fallback": True,
             "timestamp": datetime.now().isoformat()
         })
     except Exception as e:
@@ -717,78 +698,74 @@ def fetch_live(symbol):
 @app.route('/api/predict', methods=['POST'])
 @api_endpoint
 def save_prediction():
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "JSON body eksik veya invalid"}), 400
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body eksik veya invalid"}), 400
 
-        if 'symbol' not in data or not data['symbol'].strip():
-            return jsonify({"error": "symbol alanı zorunlu ve boş olamaz"}), 400
+    if 'symbol' not in data or not data['symbol'].strip():
+        return jsonify({"error": "symbol alanı zorunlu ve boş olamaz"}), 400
 
-        if 'signal' not in data or not data['signal'].strip():
-            return jsonify({"error": "signal alanı zorunlu ve boş olamaz"}), 400
+    if 'signal' not in data or not data['signal'].strip():
+        return jsonify({"error": "signal alanı zorunlu ve boş olamaz"}), 400
 
-        symbol = data['symbol'].strip().upper()
-        signal = data['signal'].strip().upper()
+    symbol = data['symbol'].strip().upper()
+    signal = data['signal'].strip().upper()
 
-        valid_signals = ['AL', 'SAT', 'BEKLE']
-        if signal not in valid_signals:
-            return jsonify({"error": f"signal '{signal}' geçersiz. {', '.join(valid_signals)} olmalı"}), 400
+    valid_signals = ['AL', 'SAT', 'BEKLE']
+    if signal not in valid_signals:
+        return jsonify({"error": f"signal '{signal}' geçersiz. {', '.join(valid_signals)} olmalı"}), 400
 
-        period = str(data.get('period', 'daily')).strip().lower()
-        if period not in ('daily', 'weekly'):
-            return jsonify({"error": "period 'daily' veya 'weekly' olmalı"}), 400
+    period = str(data.get('period', 'daily')).strip().lower()
+    if period not in ('daily', 'weekly'):
+        return jsonify({"error": "period 'daily' veya 'weekly' olmalı"}), 400
 
-        predicted_return = data.get('predicted_return', 0)
-        if not isinstance(predicted_return, (int, float)):
-            try:
-                predicted_return = float(predicted_return)
-            except (ValueError, TypeError):
-                return jsonify({"error": "predicted_return sayı olmalı"}), 400
+    predicted_return = data.get('predicted_return', 0)
+    if not isinstance(predicted_return, (int, float)):
+        try:
+            predicted_return = float(predicted_return)
+        except (ValueError, TypeError):
+            return jsonify({"error": "predicted_return sayı olmalı"}), 400
 
-        today = datetime.now().strftime('%Y-%m-%d')
+    today = datetime.now().strftime('%Y-%m-%d')
 
-        with get_db() as conn:
-            cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT COUNT(*) FROM predictions WHERE symbol = ? AND date = ? AND period = ?
-            """, (symbol, today, period))
-            existing = cursor.fetchone()[0]
-            action = "updated" if existing > 0 else "inserted"
+        cursor.execute("""
+            SELECT COUNT(*) FROM predictions WHERE symbol = ? AND date = ? AND period = ?
+        """, (symbol, today, period))
+        existing = cursor.fetchone()[0]
+        action = "updated" if existing > 0 else "inserted"
 
-            cursor.execute("""
-                MERGE predictions AS target
-                USING (VALUES (?, ?, ?, ?, ?)) AS source
-                    (symbol, date, period, prediction_signal, predicted_return)
-                ON target.symbol = source.symbol
-                   AND target.date = source.date
-                   AND target.period = source.period
-                WHEN MATCHED THEN
-                    UPDATE SET
-                        prediction_signal = source.prediction_signal,
-                        predicted_return = source.predicted_return,
-                        updated_at = GETDATE()
-                WHEN NOT MATCHED THEN
-                    INSERT (symbol, date, period, prediction_signal, predicted_return)
-                    VALUES (source.symbol, source.date, source.period,
-                            source.prediction_signal, source.predicted_return);
-            """, (symbol, today, period, signal, predicted_return))
+        cursor.execute("""
+            MERGE predictions AS target
+            USING (VALUES (?, ?, ?, ?, ?)) AS source
+                (symbol, date, period, prediction_signal, predicted_return)
+            ON target.symbol = source.symbol
+               AND target.date = source.date
+               AND target.period = source.period
+            WHEN MATCHED THEN
+                UPDATE SET
+                    prediction_signal = source.prediction_signal,
+                    predicted_return = source.predicted_return,
+                    updated_at = GETDATE()
+            WHEN NOT MATCHED THEN
+                INSERT (symbol, date, period, prediction_signal, predicted_return)
+                VALUES (source.symbol, source.date, source.period,
+                        source.prediction_signal, source.predicted_return);
+        """, (symbol, today, period, signal, predicted_return))
 
-            conn.commit()
-            cursor.close()
+        conn.commit()
+        cursor.close()
 
-            return jsonify({
-                "status": action,
-                "symbol": symbol,
-                "signal": signal,
-                "predicted_return": predicted_return,
-                "period": period,
-                "date": today
-            })
-
-    except pyodbc.Error as e:
-        return jsonify({"error": "Veritabanina kaydedilemedi", "detail": str(e)}), 503
+        return jsonify({
+            "status": action,
+            "symbol": symbol,
+            "signal": signal,
+            "predicted_return": predicted_return,
+            "period": period,
+            "date": today
+        })
 
 # ============================================================
 # 13. HEALTH CHECK
@@ -896,76 +873,71 @@ def error_description(error_code):
 @app.route('/api/postmortem', methods=['POST'])
 @api_endpoint
 def postmortem():
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "JSON eksik"}), 400
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON eksik"}), 400
 
-        symbol = data.get('symbol', '').strip().upper()
-        signal = data.get('signal', 'BEKLE').strip().upper()
+    symbol = data.get('symbol', '').strip().upper()
+    signal = data.get('signal', 'BEKLE').strip().upper()
+    try:
         predicted_return = float(data.get('predicted_return', 0))
         actual_return = float(data.get('actual_return', 0))
-
-        period = str(data.get('period', 'daily')).strip().lower()
-        if period not in ('daily', 'weekly'):
-            return jsonify({"error": "period 'daily' veya 'weekly' olmali"}), 400
-
-        valid_signals = ['AL', 'SAT', 'BEKLE']
-        if not symbol:
-            return jsonify({"error": "symbol zorunlu"}), 400
-        if signal not in valid_signals:
-            return jsonify({"error": f"signal '{signal}' gecersiz. {', '.join(valid_signals)} olmali"}), 400
-
-        error_code = determine_error_code(signal, predicted_return, actual_return)
-        description = error_description(error_code)
-
-        today = data.get('date') or datetime.now().strftime('%Y-%m-%d')
-
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                MERGE predictions AS target
-                USING (VALUES (?, ?, ?, ?, ?, ?, ?)) AS source
-                    (symbol, date, period, prediction_signal, predicted_return,
-                     actual_return, error_code)
-                ON target.symbol = source.symbol
-                   AND target.date = source.date
-                   AND target.period = source.period
-                WHEN MATCHED THEN
-                    UPDATE SET
-                        prediction_signal = source.prediction_signal,
-                        predicted_return = source.predicted_return,
-                        actual_return = source.actual_return,
-                        error_code = source.error_code,
-                        updated_at = GETDATE()
-                WHEN NOT MATCHED THEN
-                    INSERT (symbol, date, period, prediction_signal, predicted_return,
-                            actual_return, error_code)
-                    VALUES (source.symbol, source.date, source.period,
-                            source.prediction_signal, source.predicted_return,
-                            source.actual_return, source.error_code);
-            """, (symbol, today, period, signal, predicted_return, actual_return, error_code))
-            conn.commit()
-            cursor.close()
-
-        return jsonify({
-            "status": "saved",
-            "symbol": symbol,
-            "period": period,
-            "error_code": error_code,
-            "error_description": description,
-            "predicted_return": predicted_return,
-            "actual_return": actual_return,
-            "diff": round(abs(predicted_return - actual_return), 2),
-            "timestamp": datetime.now().isoformat()
-        })
-
-    except ValueError:
+    except (ValueError, TypeError):
         return jsonify({"error": "predicted_return / actual_return sayi olmali"}), 400
-    except pyodbc.Error as e:
-        return jsonify({"error": "Veritabanina kaydedilemedi", "detail": str(e)}), 503
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+
+    period = str(data.get('period', 'daily')).strip().lower()
+    if period not in ('daily', 'weekly'):
+        return jsonify({"error": "period 'daily' veya 'weekly' olmali"}), 400
+
+    valid_signals = ['AL', 'SAT', 'BEKLE']
+    if not symbol:
+        return jsonify({"error": "symbol zorunlu"}), 400
+    if signal not in valid_signals:
+        return jsonify({"error": f"signal '{signal}' gecersiz. {', '.join(valid_signals)} olmali"}), 400
+
+    error_code = determine_error_code(signal, predicted_return, actual_return)
+    description = error_description(error_code)
+
+    today = data.get('date') or datetime.now().strftime('%Y-%m-%d')
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            MERGE predictions AS target
+            USING (VALUES (?, ?, ?, ?, ?, ?, ?)) AS source
+                (symbol, date, period, prediction_signal, predicted_return,
+                 actual_return, error_code)
+            ON target.symbol = source.symbol
+               AND target.date = source.date
+               AND target.period = source.period
+            WHEN MATCHED THEN
+                UPDATE SET
+                    prediction_signal = source.prediction_signal,
+                    predicted_return = source.predicted_return,
+                    actual_return = source.actual_return,
+                    error_code = source.error_code,
+                    updated_at = GETDATE()
+            WHEN NOT MATCHED THEN
+                INSERT (symbol, date, period, prediction_signal, predicted_return,
+                        actual_return, error_code)
+                VALUES (source.symbol, source.date, source.period,
+                        source.prediction_signal, source.predicted_return,
+                        source.actual_return, source.error_code);
+        """, (symbol, today, period, signal, predicted_return, actual_return, error_code))
+        conn.commit()
+        cursor.close()
+
+    return jsonify({
+        "status": "saved",
+        "symbol": symbol,
+        "period": period,
+        "error_code": error_code,
+        "error_description": description,
+        "predicted_return": predicted_return,
+        "actual_return": actual_return,
+        "diff": round(abs(predicted_return - actual_return), 2),
+        "timestamp": datetime.now().isoformat()
+    })
 
 
 # ============================================================
@@ -974,44 +946,38 @@ def postmortem():
 @app.route('/api/postmortem/stats')
 @api_endpoint
 def postmortem_stats():
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT error_code, COUNT(*) as count,
-                       AVG(ABS(predicted_return - actual_return)) as avg_error
-                FROM predictions
-                WHERE error_code IS NOT NULL AND error_code != ''
-                GROUP BY error_code
-                ORDER BY count DESC
-            """)
-            rows = dictfetchall(cursor)
+        cursor.execute("""
+            SELECT error_code, COUNT(*) as count,
+                   AVG(ABS(predicted_return - actual_return)) as avg_error
+            FROM predictions
+            WHERE error_code IS NOT NULL AND error_code != ''
+            GROUP BY error_code
+            ORDER BY count DESC
+        """)
+        rows = dictfetchall(cursor)
 
-            cursor.execute("SELECT COUNT(*) FROM predictions")
-            total = cursor.fetchone()[0]
-            cursor.close()
+        cursor.execute("SELECT COUNT(*) FROM predictions")
+        total = cursor.fetchone()[0]
+        cursor.close()
 
-            distribution = []
-            for row in rows:
-                distribution.append({
-                    "error_code": row['error_code'],
-                    "name": error_description(row['error_code']),
-                    "count": row['count'],
-                    "percentage": round(row['count'] / total * 100, 1) if total > 0 else 0,
-                    "avg_error": round(float(row['avg_error']) if row['avg_error'] is not None else 0.0, 2)
-                })
-
-            return jsonify({
-                "total_predictions": total,
-                "error_distribution": distribution,
-                "timestamp": datetime.now().isoformat()
+        distribution = []
+        for row in rows:
+            distribution.append({
+                "error_code": row['error_code'],
+                "name": error_description(row['error_code']),
+                "count": row['count'],
+                "percentage": round(row['count'] / total * 100, 1) if total > 0 else 0,
+                "avg_error": round(float(row['avg_error']) if row['avg_error'] is not None else 0.0, 2)
             })
 
-    except pyodbc.Error as e:
-        return jsonify({"error": "Veritabanina baglanilamadi", "detail": str(e)}), 503
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "total_predictions": total,
+            "error_distribution": distribution,
+            "timestamp": datetime.now().isoformat()
+        })
 
 
 # ============================================================
@@ -1020,39 +986,34 @@ def postmortem_stats():
 @app.route('/api/calibration')
 @api_endpoint
 def get_calibration():
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT confidence, COUNT(*) as total,
-                       SUM(CASE WHEN actual_return >= 0 THEN 1 ELSE 0 END) as wins,
-                       AVG(ISNULL(actual_return, 0)) as avg_return
-                FROM predictions
-                WHERE confidence IS NOT NULL AND confidence > 0
-                GROUP BY confidence ORDER BY confidence DESC
-            """)
-            rows = dictfetchall(cursor)
-            cursor.close()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT confidence, COUNT(*) as total,
+                   SUM(CASE WHEN actual_return >= 0 THEN 1 ELSE 0 END) as wins,
+                   AVG(ISNULL(actual_return, 0)) as avg_return
+            FROM predictions
+            WHERE confidence IS NOT NULL AND confidence > 0
+            GROUP BY confidence ORDER BY confidence DESC
+        """)
+        rows = dictfetchall(cursor)
+        cursor.close()
 
-            bands = []
-            for r in rows:
-                total = r['total'] or 0
-                wins = r['wins'] or 0
-                if total > 0:
-                    actual_rate = (wins / total) * 100
-                    bands.append({
-                        'band': r['confidence'],
-                        'expected': r['confidence'],
-                        'actual_rate': round(actual_rate, 1),
-                        'avg_return': round(float(r['avg_return']) if r['avg_return'] is not None else 0.0, 2),
-                        'total': total
-                    })
+        bands = []
+        for r in rows:
+            total = r['total'] or 0
+            wins = r['wins'] or 0
+            if total > 0:
+                actual_rate = (wins / total) * 100
+                bands.append({
+                    'band': r['confidence'],
+                    'expected': r['confidence'],
+                    'actual_rate': round(actual_rate, 1),
+                    'avg_return': round(float(r['avg_return']) if r['avg_return'] is not None else 0.0, 2),
+                    'total': total
+                })
 
-            return jsonify({"calibration_bands": bands})
-    except pyodbc.Error as e:
-        return jsonify({"error": "Veritabanina baglanilamadi", "detail": str(e)}), 503
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"calibration_bands": bands})
 
 
 # ============================================================
@@ -1061,52 +1022,50 @@ def get_calibration():
 @app.route('/api/kelly/<symbol>')
 @api_endpoint
 def kelly_sizing(symbol):
-    try:
-        symbol = symbol.strip().upper()
-        if not symbol:
-            return jsonify({"error": "symbol zorunlu"}), 400
+    symbol = symbol.strip().upper()
+    if not symbol:
+        return jsonify({"error": "symbol zorunlu"}), 400
 
+    try:
         p = float(request.args.get('win_prob', 0.55))
         b = float(request.args.get('win_loss', 2.0))
         capital = float(request.args.get('capital', 100000))
+    except ValueError:
+        return jsonify({"error": "Parametreler sayi olmali"}), 400
 
-        if p <= 0 or p >= 1:
-            return jsonify({"error": "win_prob 0 ile 1 arasinda olmali"}), 400
-        if b <= 0:
-            return jsonify({"error": "win_loss 0'dan buyuk olmali"}), 400
-        if capital <= 0:
-            return jsonify({"error": "capital pozitif olmali"}), 400
+    if p <= 0 or p >= 1:
+        return jsonify({"error": "win_prob 0 ile 1 arasinda olmali"}), 400
+    if b <= 0:
+        return jsonify({"error": "win_loss 0'dan buyuk olmali"}), 400
+    if capital <= 0:
+        return jsonify({"error": "capital pozitif olmali"}), 400
 
-        q = 1 - p
-        kelly = (b * p - q) / b
+    q = 1 - p
+    kelly = (b * p - q) / b
 
-        if kelly <= 0:
-            return jsonify({
-                "symbol": symbol,
-                "win_prob": p, "win_loss": b, "kelly_frac": round(kelly, 4),
-                "warning": "Kelly degeri 0 veya negatif - pozisyon almayin",
-                "positions": {
-                    "full_kelly": 0.0,
-                    "quarter_kelly": 0.0,
-                    "safe_half": 0.0
-                }
-            })
-
-        quarter_kelly = kelly / 4
-
+    if kelly <= 0:
         return jsonify({
             "symbol": symbol,
             "win_prob": p, "win_loss": b, "kelly_frac": round(kelly, 4),
+            "warning": "Kelly degeri 0 veya negatif - pozisyon almayin",
             "positions": {
-                "full_kelly": round(capital * kelly, 2),
-                "quarter_kelly": round(capital * quarter_kelly, 2),
-                "safe_half": round(capital * kelly / 2, 2)
+                "full_kelly": 0.0,
+                "quarter_kelly": 0.0,
+                "safe_half": 0.0
             }
         })
-    except ValueError:
-        return jsonify({"error": "Parametreler sayi olmali"}), 400
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+
+    quarter_kelly = kelly / 4
+
+    return jsonify({
+        "symbol": symbol,
+        "win_prob": p, "win_loss": b, "kelly_frac": round(kelly, 4),
+        "positions": {
+            "full_kelly": round(capital * kelly, 2),
+            "quarter_kelly": round(capital * quarter_kelly, 2),
+            "safe_half": round(capital * kelly / 2, 2)
+        }
+    })
 
 
 
@@ -1173,13 +1132,15 @@ def _calculate_technical_signal(symbol, period_days=1):
         return "BEKLE", 50
 
 
+# 1.6 — PERIOD_MAP / TIMEFRAMES tutarliligi
 PERIOD_MAP = {
-    '1g': 1, '1w': 7, '2w': 14, '1m': 30,
+    '1g': 1, '1w': 7, '2w': 14, '3w': 15, '1m': 30,
     '3m': 90, '6m': 180, '1y': 365
 }
 PERIOD_NAMES = {
     '1g': 'Gunluk', '1w': 'Haftalik', '2w': '2 Haftalik',
-    '1m': '1 Ay', '3m': '3 Ay', '6m': '6 Ay', '1y': 'Yillik'
+    '3w': '3 Haftalik', '1m': '1 Ay', '3m': '3 Ay',
+    '6m': '6 Ay', '1y': 'Yillik'
 }
 
 
@@ -1189,39 +1150,35 @@ PERIOD_NAMES = {
 @app.route('/api/analyze/batch')
 @api_endpoint
 def analyze_batch():
-    try:
-        symbols_str = request.args.get('symbols', '')
-        period = request.args.get('period', '1g')
+    symbols_str = request.args.get('symbols', '')
+    period = request.args.get('period', '1g')
 
-        if not symbols_str:
-            return jsonify({"error": "symbols parametresi zorunlu"}), 400
+    if not symbols_str:
+        return jsonify({"error": "symbols parametresi zorunlu"}), 400
 
-        symbols = [s.strip().upper() for s in symbols_str.split(',') if s.strip()]
-        if not symbols:
-            return jsonify({"error": "Gecerli sembol bulunamadi"}), 400
-        if len(symbols) > 20:
-            return jsonify({"error": "En fazla 20 sembol analiz edilebilir"}), 400
+    symbols = [s.strip().upper() for s in symbols_str.split(',') if s.strip()]
+    if not symbols:
+        return jsonify({"error": "Gecerli sembol bulunamadi"}), 400
+    if len(symbols) > 20:
+        return jsonify({"error": "En fazla 20 sembol analiz edilebilir"}), 400
 
-        days = PERIOD_MAP.get(period, 1)
+    days = PERIOD_MAP.get(period, 1)
 
-        results = []
-        for sym in symbols:
-            signal, confidence = _calculate_technical_signal(sym, days)
-            results.append({
-                "symbol": sym,
-                "signal": signal,
-                "confidence": confidence
-            })
-
-        return jsonify({
-            "period": PERIOD_NAMES.get(period, period),
-            "period_days": days,
-            "analyzed": len(results),
-            "results": results
+    results = []
+    for sym in symbols:
+        signal, confidence = _calculate_technical_signal(sym, days)
+        results.append({
+            "symbol": sym,
+            "signal": signal,
+            "confidence": confidence
         })
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify({
+        "period": PERIOD_NAMES.get(period, period),
+        "period_days": days,
+        "analyzed": len(results),
+        "results": results
+    })
 
 
 # ============================================================
@@ -1230,43 +1187,40 @@ def analyze_batch():
 @app.route('/api/analyze/<symbol>')
 @api_endpoint
 def analyze_symbol(symbol):
+    symbol = symbol.strip().upper()
+    if not symbol:
+        return jsonify({"error": "symbol zorunlu"}), 400
+    if not symbol.replace('-', '').replace('.', '').isalnum():
+        return jsonify({"error": "symbol sadece harf, rakam, cizgi ve nokta icerebilir"}), 400
+
+    period = request.args.get('period', '1g')
+    days = PERIOD_MAP.get(period, 1)
+
+    signal, confidence = _calculate_technical_signal(symbol, days)
+
+    # DB guncellemesi basarisiz olsa bile sinyal yanitini dondur
     try:
-        symbol = symbol.strip().upper()
-        if not symbol:
-            return jsonify({"error": "symbol zorunlu"}), 400
-        if not symbol.replace('-', '').replace('.', '').isalnum():
-            return jsonify({"error": "symbol sadece harf, rakam, cizgi ve nokta icerebilir"}), 400
+        with get_db() as conn:
+            cursor = conn.cursor()
+            today = datetime.now().strftime('%Y-%m-%d')
+            cursor.execute("""
+                UPDATE daily_scores
+                SET signal = ?, confidence = ?
+                WHERE symbol = ? AND date = ?
+            """, (signal, int(confidence), symbol, today))
+            conn.commit()
+            cursor.close()
+    except pyodbc.Error as db_ex:
+        app.logger.warning(f"[ANALYZE {symbol}] DB kaydi atlandi: {db_ex}")
 
-        period = request.args.get('period', '1g')
-        days = PERIOD_MAP.get(period, 1)
-
-        signal, confidence = _calculate_technical_signal(symbol, days)
-
-        try:
-            with get_db() as conn:
-                cursor = conn.cursor()
-                today = datetime.now().strftime('%Y-%m-%d')
-                cursor.execute("""
-                    UPDATE daily_scores
-                    SET signal = ?, confidence = ?
-                    WHERE symbol = ? AND date = ?
-                """, (signal, int(confidence), symbol, today))
-                conn.commit()
-                cursor.close()
-        except pyodbc.Error as db_ex:
-            app.logger.warning(f"[ANALYZE {symbol}] DB kaydi atlandi: {db_ex}")
-
-        return jsonify({
-            "symbol": symbol,
-            "period": PERIOD_NAMES.get(period, period),
-            "period_days": days,
-            "signal": signal,
-            "confidence": confidence,
-            "timestamp": datetime.now().isoformat()
-        })
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify({
+        "symbol": symbol,
+        "period": PERIOD_NAMES.get(period, period),
+        "period_days": days,
+        "signal": signal,
+        "confidence": confidence,
+        "timestamp": datetime.now().isoformat()
+    })
 
 
 
@@ -1274,8 +1228,7 @@ def analyze_symbol(symbol):
 # MODUL 6: COK ZAMAN DILIMLI KONSENSUS MOTORU
 # ============================================================
 
-import math
-
+# 1.6 — TIMEFRAMES ve PERIOD_MAP ayni anahtar kumesine sahip
 TIMEFRAMES = [
     {'key': '1g',  'name': 'Gunluk',      'weight': 1.0, 'bars': 1},
     {'key': '1w',  'name': 'Haftalik',    'weight': 1.5, 'bars': 5},
@@ -1283,6 +1236,8 @@ TIMEFRAMES = [
     {'key': '3w',  'name': '3 Haftalik',  'weight': 2.0, 'bars': 15},
     {'key': '1m',  'name': 'Aylik',       'weight': 2.0, 'bars': 21},
     {'key': '3m',  'name': '3 Aylik',     'weight': 2.5, 'bars': 63},
+    {'key': '6m',  'name': '6 Aylik',     'weight': 3.0, 'bars': 126},
+    {'key': '1y',  'name': 'Yillik',      'weight': 3.5, 'bars': 252},
 ]
 
 TIMEFRAME_HOURLY = {'key': '1h', 'name': 'Saatlik', 'weight': 0.5, 'bars': 7}
@@ -1483,129 +1438,120 @@ def _save_signal_history(conn, symbol, analysis, today):
 @app.route('/api/multiframe/<symbol>')
 @api_endpoint
 def multiframe_signal(symbol):
-    try:
-        symbol = symbol.strip().upper()
-        if not symbol:
-            return jsonify({"error": "symbol zorunlu"}), 400
+    symbol = symbol.strip().upper()
+    if not symbol:
+        return jsonify({"error": "symbol zorunlu"}), 400
 
-        analysis = _multiframe_analysis(symbol)
-        if analysis is None:
-            return jsonify({
-                "symbol": symbol,
-                "error": "Analiz yapilamadi - yfinance/pandas_ta eksik, veri yetersiz veya sembol bulunamadi"
-            }), 503
-
-        save = request.args.get('save', '1') == '1'
-        saved = False
-        save_error = None
-        if save:
-            try:
-                today = datetime.now().strftime('%Y-%m-%d')
-                with get_db() as conn:
-                    saved, save_error = _save_signal_history(conn, symbol, analysis, today)
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        UPDATE daily_scores
-                        SET signal = ?, confidence = ?
-                        WHERE symbol = ? AND date = ?
-                    """, (analysis['final_signal'], analysis['final_confidence'], symbol, today))
-                    conn.commit()
-                    cursor.close()
-            except pyodbc.Error as db_ex:
-                app.logger.warning(f"[MULTIFRAME {symbol}] DB guncelleme atlandi: {db_ex}")
-
+    analysis = _multiframe_analysis(symbol)
+    if analysis is None:
         return jsonify({
             "symbol": symbol,
-            "final_signal": analysis['final_signal'],
-            "final_confidence": analysis['final_confidence'],
-            "consensus_score": analysis['consensus_score'],
-            "timeframe_agreement": analysis['agreement'],
-            "saved_to_history": saved,
-            "save_error": save_error,
-            "timeframes": analysis['timeframes'],
-            "timestamp": datetime.now().isoformat()
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+            "error": "Analiz yapilamadi - yfinance/pandas_ta eksik, veri yetersiz veya sembol bulunamadi"
+        }), 503
+
+    save = request.args.get('save', '1') == '1'
+    saved = False
+    save_error = None
+    if save:
+        try:
+            today = datetime.now().strftime('%Y-%m-%d')
+            with get_db() as conn:
+                saved, save_error = _save_signal_history(conn, symbol, analysis, today)
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE daily_scores
+                    SET signal = ?, confidence = ?
+                    WHERE symbol = ? AND date = ?
+                """, (analysis['final_signal'], analysis['final_confidence'], symbol, today))
+                conn.commit()
+                cursor.close()
+        except pyodbc.Error as db_ex:
+            app.logger.warning(f"[MULTIFRAME {symbol}] DB guncelleme atlandi: {db_ex}")
+
+    return jsonify({
+        "symbol": symbol,
+        "final_signal": analysis['final_signal'],
+        "final_confidence": analysis['final_confidence'],
+        "consensus_score": analysis['consensus_score'],
+        "timeframe_agreement": analysis['agreement'],
+        "saved_to_history": saved,
+        "save_error": save_error,
+        "timeframes": analysis['timeframes'],
+        "timestamp": datetime.now().isoformat()
+    })
 
 
 @app.route('/api/daily-scan')
 @api_endpoint
 def daily_scan():
-    try:
-        symbols = []
-        symbols_param = request.args.get('symbols', '')
-        if symbols_param:
-            symbols = [s.strip().upper() for s in symbols_param.split(',') if s.strip()]
-        else:
-            try:
-                with get_db() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT symbol FROM stocks ORDER BY symbol")
-                    symbols = [r[0] for r in cursor.fetchall()]
-                    cursor.close()
-            except pyodbc.Error:
-                symbols = []
+    symbols = []
+    symbols_param = request.args.get('symbols', '')
+    if symbols_param:
+        symbols = [s.strip().upper() for s in symbols_param.split(',') if s.strip()]
+    else:
+        try:
+            with get_db() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT symbol FROM stocks ORDER BY symbol")
+                symbols = [r[0] for r in cursor.fetchall()]
+                cursor.close()
+        except pyodbc.Error:
+            symbols = []
 
-        if not symbols:
-            return jsonify({"error": "Hisse evreni bos - ?symbols=NVDA,AAPL verin veya stocks tablosunu doldurun"}), 400
+    if not symbols:
+        return jsonify({"error": "Hisse evreni bos - ?symbols=NVDA,AAPL verin veya stocks tablosunu doldurun"}), 400
 
-        limit = max(1, min(int(request.args.get('limit', 20)), 100))
-        targets = symbols[:limit]
+    limit = max(1, min(int(request.args.get('limit', 20)), 100))
+    targets = symbols[:limit]
 
-        today = datetime.now().strftime('%Y-%m-%d')
-        results = []
-        scanned = 0
-        for sym in targets:
-            analysis = _multiframe_analysis(sym)
-            if analysis is None:
-                results.append({"symbol": sym, "final_signal": "BEKLE",
-                                "final_confidence": 50, "status": "skipped"})
-                continue
-            scanned += 1
-            record = {"symbol": sym, "final_signal": analysis['final_signal'],
-                      "final_confidence": analysis['final_confidence'],
-                      "consensus_score": analysis['consensus_score'],
-                      "timeframe_agreement": analysis['agreement'], "status": "ok"}
-            try:
-                with get_db() as conn:
-                    ok, err = _save_signal_history(conn, sym, analysis, today)
-                    if not ok:
-                        record['save_error'] = (err or '')[:150]
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        UPDATE daily_scores
-                        SET signal = ?, confidence = ?
-                        WHERE symbol = ? AND date = ?
-                    """, (analysis['final_signal'], analysis['final_confidence'], sym, today))
-                    conn.commit()
-                    cursor.close()
-            except pyodbc.Error as db_ex:
-                record['db_error'] = str(db_ex)[:120]
-            results.append(record)
+    today = datetime.now().strftime('%Y-%m-%d')
+    results = []
+    scanned = 0
+    for sym in targets:
+        analysis = _multiframe_analysis(sym)
+        if analysis is None:
+            results.append({"symbol": sym, "final_signal": "BEKLE",
+                            "final_confidence": 50, "status": "skipped"})
+            continue
+        scanned += 1
+        record = {"symbol": sym, "final_signal": analysis['final_signal'],
+                  "final_confidence": analysis['final_confidence'],
+                  "consensus_score": analysis['consensus_score'],
+                  "timeframe_agreement": analysis['agreement'], "status": "ok"}
+        try:
+            with get_db() as conn:
+                ok, err = _save_signal_history(conn, sym, analysis, today)
+                if not ok:
+                    record['save_error'] = (err or '')[:150]
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE daily_scores
+                    SET signal = ?, confidence = ?
+                    WHERE symbol = ? AND date = ?
+                """, (analysis['final_signal'], analysis['final_confidence'], sym, today))
+                conn.commit()
+                cursor.close()
+        except pyodbc.Error as db_ex:
+            record['db_error'] = str(db_ex)[:120]
+        results.append(record)
 
-        al = sum(1 for r in results if r['final_signal'] == 'AL')
-        sat = sum(1 for r in results if r['final_signal'] == 'SAT')
-        bekle = sum(1 for r in results if r['final_signal'] == 'BEKLE')
+    al = sum(1 for r in results if r['final_signal'] == 'AL')
+    sat = sum(1 for r in results if r['final_signal'] == 'SAT')
+    bekle = sum(1 for r in results if r['final_signal'] == 'BEKLE')
 
-        return jsonify({
-            "date": today,
-            "scanned": scanned,
-            "skipped": len(targets) - scanned,
-            "summary": {"AL": al, "SAT": sat, "BEKLE": bekle},
-            "results": results
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify({
+        "date": today,
+        "scanned": scanned,
+        "skipped": len(targets) - scanned,
+        "summary": {"AL": al, "SAT": sat, "BEKLE": bekle},
+        "results": results
+    })
 
 
 
 # ============================================================
 # MODUL 7: SAF PANDAS INDIKATORLERI
 # ============================================================
-
-import pandas as pd
-
 
 def calc_ema(series, period):
     return series.ewm(span=period, adjust=False).mean()
@@ -1895,4 +1841,5 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"[UYARI] Sema kontrolu (period sutunu) basarisiz: {e}")
 
-    app.run(debug=True, port=5000)
+    # 1.3 — debug=True kaldirildi, env degiskeni ile kontrol edilir
+    app.run(debug=os.getenv("ARFEZ_DEBUG") == "1", host='0.0.0.0', port=5000)
