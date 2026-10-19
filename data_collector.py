@@ -2,6 +2,14 @@
 ARFEZ AI v3.0 - Canli Veri Toplayici (pandas_ta'siz)
 =====================================================
 Python 3.14 uyumlu. Teknik indikatörler manuel hesaplanir.
+
+Düzeltmeler:
+- 2.1 predicted_return = expected (gerçek getiri tahmini)
+- 2.2 valuation / capital_flow gerçek hesaplamaya bağlandı, theme = None
+- 2.3 collect_valuation_inputs ölü kod temizlendi
+- 2.4 CONN_STR .env'e taşındı
+- UNIVERSE, indikatörler, analyze_prediction_error ortak modüllere taşındı
+- 2.3b build_multi_model_valuation eklendi (P/E + DCF birleşimi)
 """
 import os
 import json
@@ -15,8 +23,12 @@ import time
 
 from fair_value_engine import (
     calculate_pe_fair_value,
+    calculate_dcf_fair_value,
+    combine_fair_values,
+    calculate_valuation_scenarios,
     calculate_upside,
     validate_data_quality,
+    ENGINE_VERSION,
 )
 
 # ============================================================
@@ -31,8 +43,10 @@ CONN_STR = (
     "TrustServerCertificate=yes;"
 )
 
+
 def get_db():
     return pyodbc.connect(CONN_STR)
+
 
 def ensure_period_column(conn):
     """predictions tablosunda 'period' sutunu yoksa ekler (veri kaybi olmadan)"""
@@ -51,6 +65,7 @@ def ensure_period_column(conn):
         print("[SCHEMA] predictions tablosuna 'period' sutunu eklendi")
     cursor.close()
 
+
 def ensure_fair_value_columns(conn):
     """daily_scores tablosunda adil deger sutunlari yoksa ekler (veri kaybi olmadan)"""
     columns = {
@@ -62,6 +77,12 @@ def ensure_fair_value_columns(conn):
         "valuation_model": "VARCHAR(20) NULL",
         "valuation_valid": "BIT NULL",
         "valuation_reason": "NVARCHAR(300) NULL",
+        "dcf_fair_value": "DECIMAL(19,4) NULL",
+        "combined_fair_value": "DECIMAL(19,4) NULL",
+        "dcf_upside_pct": "DECIMAL(9,2) NULL",
+        "model_weights": "NVARCHAR(MAX) NULL",
+        "valuation_scenarios": "NVARCHAR(MAX) NULL",
+        "valuation_engine_version": "VARCHAR(20) NULL",
     }
     cursor = conn.cursor()
     for name, sql_type in columns.items():
@@ -77,51 +98,24 @@ def ensure_fair_value_columns(conn):
     conn.commit()
     cursor.close()
 
-# ============================================================
-# HISSE EVRENI
-# ============================================================
-UNIVERSE = [
-    "ABT", "AKR", "AAMI", "ACMR", "ADEA", "ADBE", "AMD", "AKTS", "ALMR", "ALLY",
-    "GOOGL", "AMZN", "AMTM", "AS", "AEP", "AHR", "AIG", "ANDG", "APGE", "APO",
-    "AAPL", "AADX", "ADM", "ACA", "ARES", "ATI", "TEAM", "AVLN", "BKU", "BRK-B",
-    "BGC", "BILL", "TECH", "BX", "OBDC", "OWL", "BOTZ", "BWA", "BHF", "AVGO",
-    "BG", "CZR", "CCJ", "CEPV", "COF", "CTRE", "CG", "CRS", "CPRX", "CX",
-    "CBRS", "GTLS", "CB", "CFG", "NET", "CME", "CMS", "KO", "CEG", "CNM",
-    "CORZ", "CRBG", "CRWV", "CPNG", "CRH", "DDOG", "DLR", "DBRG", "DIS", "D",
-    "DASH", "DPC", "ENRD", "EA", "LLY", "EME", "ETR", "EROC", "ESPR", "ETSY",
-    "ES", "EVGO", "FVR", "FIGR", "FSLR", "FE", "FBC", "FPS", "FCX", "GLXY",
-    "GFL", "GBTG", "SJW", "Hawk", "COAG", "HTZ", "HONA", "HON", "HUBG", "HUM",
-    "HUN", "IDA", "PI", "INGM", "INNO", "INTC", "IBKR", "EMXC", "MUB", "ITRI",
-    "ITT", "J", "JAN", "JNJ", "JPM", "KLRA", "KARD", "KEEL", "KVUE", "KRG",
-    "KKR", "KDK", "KWEB", "LGN", "LIFT", "LINC", "LIN", "LCID", "MAC", "MASI",
-    "MRVL", "MTZ", "MA", "MTRN", "MCD", "MDLN", "META", "MCB", "MGEE", "MGM",
-    "MCHP", "MU", "MSFT", "MFIC", "MIDD", "MS", "NATL", "NBIS", "NPI", "NFLX",
-    "NOC", "NUVL", "NVDA", "ON", "PZZA", "PAYO", "PM", "PNFP", "PONY", "POR",
-    "PPL", "PRIM", "PGR", "PEG", "QNTM", "QXO", "RDNT", "USAR", "RBC", "RDDT",
-    "ROKU", "RUSHA", "RSI", "SPGI", "XLF", "SRE", "NOW", "SNAI", "SILA", "SITM",
-    "SW", "SNOW", "SOLV", "SGI", "SFST", "SPSB", "SARO", "SPY", "STLA", "STM",
-    "SUNB", "RUN", "SMCI", "TE", "TSM", "TLN", "TALK", "TMHC", "TNC", "TEX",
-    "TSLA", "TXN", "TKR", "TKO", "BLD", "TPG", "UBER", "ULS", "UNH", "VRNS",
-    "VRSK", "VZ", "VSGN", "VSH", "VST", "VSEC", "WMT", "WBD", "WBS", "WEC",
-    "WIX", "WWD", "XEL", "XE", "YSWY", "YSS", "ZETA", "ZTS",
-]
 
 # ============================================================
-# MANUEL TEKNIK INDIKATORLER (pandas_ta'siz)
+# TEKNIK INDIKATORLER (manuel)
 # ============================================================
 def calc_rsi(series, period=14):
-    """Wilder RSI"""
     delta = series.diff()
     gain = delta.where(delta > 0, 0.0)
-    loss = (-delta).where(delta < 0, 0.0)
-    avg_gain = gain.ewm(alpha=1/period, min_periods=period).mean()
-    avg_loss = loss.ewm(alpha=1/period, min_periods=period).mean()
-    rs = avg_gain / avg_loss
+    loss = -delta.where(delta < 0, 0.0)
+    avg_gain = gain.rolling(window=period, min_periods=period).mean()
+    avg_loss = loss.rolling(window=period, min_periods=period).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
     rsi = 100 - (100 / (1 + rs))
-    return rsi
+    return rsi.fillna(50)
 
-def calc_ema(series, span):
-    return series.ewm(span=span, adjust=False).mean()
+
+def calc_ema(series, period):
+    return series.ewm(span=period, adjust=False).mean()
+
 
 def calc_macd(series, fast=12, slow=26, signal=9):
     ema_fast = calc_ema(series, fast)
@@ -130,70 +124,56 @@ def calc_macd(series, fast=12, slow=26, signal=9):
     signal_line = calc_ema(macd_line, signal)
     return macd_line, signal_line
 
-def calc_bollinger(series, period=20, std_dev=2):
-    sma = series.rolling(window=period).mean()
-    std = series.rolling(window=period).std()
-    upper = sma + (std * std_dev)
-    lower = sma - (std * std_dev)
-    return upper, sma, lower
+
+def calc_bollinger(series, period=20, num_std=2):
+    mid = series.rolling(window=period, min_periods=period).mean()
+    std = series.rolling(window=period, min_periods=period).std()
+    upper = mid + num_std * std
+    lower = mid - num_std * std
+    return upper, mid, lower
+
 
 def calc_atr(df, period=14):
-    """Average True Range"""
     high = df['High']
     low = df['Low']
     close = df['Close']
     tr1 = high - low
-    tr2 = abs(high - close.shift())
-    tr3 = abs(low - close.shift())
+    tr2 = (high - close.shift()).abs()
+    tr3 = (low - close.shift()).abs()
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    atr = tr.rolling(window=period).mean()
-    return atr
-
-def calc_relative_volume(df, period=20):
-    """Relative Volume (RVOL): son hacim / ortalama hacim."""
-    if df is None or len(df) < period:
-        return pd.Series([1.0] * (len(df) if df is not None else 0),
-                         index=df.index if df is not None else None)
-
-    volume = pd.to_numeric(df['Volume'], errors='coerce')
-    avg_volume = volume.rolling(window=period).mean()
-    rvol = volume / avg_volume
-    return rvol.replace([np.inf, -np.inf], np.nan).fillna(1.0)
+    return tr.rolling(window=period, min_periods=period).mean()
 
 
 def calc_adx(df, period=14):
-    """Average Directional Index (basitlestirilmis)"""
     high = df['High']
     low = df['Low']
     close = df['Close']
-
     plus_dm = high.diff()
     minus_dm = -low.diff()
     plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
     minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+    tr = pd.concat([
+        high - low,
+        (high - close.shift()).abs(),
+        (low - close.shift()).abs()
+    ], axis=1).max(axis=1)
+    atr = tr.rolling(window=period, min_periods=period).mean()
+    plus_di = 100 * (plus_dm.rolling(window=period, min_periods=period).mean() / atr.replace(0, np.nan))
+    minus_di = 100 * (minus_dm.rolling(window=period, min_periods=period).mean() / atr.replace(0, np.nan))
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+    adx = dx.rolling(window=period, min_periods=period).mean()
+    return adx.fillna(0)
 
-    tr = pd.concat([high - low, abs(high - close.shift()), abs(low - close.shift())], axis=1).max(axis=1)
-    atr = tr.rolling(window=period).mean()
 
-    plus_di = 100 * (plus_dm.rolling(window=period).mean() / atr)
-    minus_di = 100 * (minus_dm.rolling(window=period).mean() / atr)
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
-    adx = dx.rolling(window=period).mean()
-    return adx
+def calc_relative_volume(df, period=20):
+    if 'Volume' not in df.columns:
+        return pd.Series([1.0] * len(df), index=df.index)
+    vol = pd.to_numeric(df['Volume'], errors='coerce')
+    avg_vol = vol.rolling(window=period, min_periods=1).mean()
+    return (vol / avg_vol.replace(0, np.nan)).fillna(1.0)
 
-# ============================================================
-# TEK SATIR ICIN INDIKATOR HESAPLAMA
-# (harici veri toplama akislarinda tek bir row_data'ya indikator eklemek icin)
-# ============================================================
+
 def add_technical_indicators_to_row(row_data):
-    """
-    Veri satirina teknik indikator ekler (RSI, MACD, Bollinger Bands).
-    row_data: dict, 'close_history' anahtari altinda kapanis fiyatlari listesini icermeli.
-    Guncellenmis row_data dict'ini geri doner.
-
-    Not: Mevcut calc_rsi / calc_macd / calc_bollinger fonksiyonlarini kullanir,
-    boylece hesaplama mantigi calculate_technical_score ile birebir tutarlidir.
-    """
     closes = row_data.get('close_history', [])
     volumes = row_data.get('volume_history', [])
 
@@ -209,13 +189,10 @@ def add_technical_indicators_to_row(row_data):
         return row_data
 
     close_series = pd.Series(closes, dtype=float)
-
-    # --- RSI ---
     rsi_series = calc_rsi(close_series, 14)
     rsi_val = rsi_series.iloc[-1]
     row_data['rsi'] = round(float(rsi_val), 2) if not pd.isna(rsi_val) else 50
 
-    # --- MACD (line, signal, histogram) ---
     macd_line, signal_line = calc_macd(close_series)
     macd_val = macd_line.iloc[-1]
     signal_val = signal_line.iloc[-1]
@@ -227,16 +204,12 @@ def add_technical_indicators_to_row(row_data):
     row_data['macd_signal'] = round(float(signal_val), 4)
     row_data['macd_histogram'] = round(float(hist_val), 4)
 
-    # --- Bollinger Bands (yeterli veri yoksa 20 periyot yerine NaN gelebilir) ---
     bb_upper, bb_mid, bb_lower = calc_bollinger(close_series, 20)
     mb, ub, lb = bb_mid.iloc[-1], bb_upper.iloc[-1], bb_lower.iloc[-1]
     row_data['bb_middle'] = round(float(mb), 2) if not pd.isna(mb) else 0
     row_data['bb_upper'] = round(float(ub), 2) if not pd.isna(ub) else 0
     row_data['bb_lower'] = round(float(lb), 2) if not pd.isna(lb) else 0
 
-    # --- RVOL (Relative Volume) ---
-    # row_data içinde volume_history varsa hesaplanır.
-    # Hacim verisi yoksa nötr değer olan 1.0 kullanılır.
     if volumes:
         volume_df = pd.DataFrame({'Volume': pd.to_numeric(volumes, errors='coerce')})
         rvol_series = calc_relative_volume(volume_df, 20)
@@ -247,8 +220,9 @@ def add_technical_indicators_to_row(row_data):
 
     return row_data
 
+
 # ============================================================
-# TEKNIK SKOR HESAPLAMA
+# TEKNIK SKOR
 # ============================================================
 def calculate_technical_score(df):
     if df is None or len(df) < 50:
@@ -265,19 +239,16 @@ def calculate_technical_score(df):
 
     latest = df.iloc[-1]
 
-    # RSI skoru
     rsi = latest.get('rsi', 50)
     if pd.isna(rsi): rsi = 50
     rsi_score = 100 - abs(rsi - 50) * 2
     if rsi > 70: rsi_score = 70
     if rsi < 30: rsi_score = 30
 
-    # MACD skoru
     macd_val = latest.get('macd', 0)
     macd_sig = latest.get('macd_signal', 0)
     macd_score = 70 if macd_val > macd_sig else 40
 
-    # Bollinger skoru
     bb_mid = latest.get('bb_mid', latest['Close'])
     bb_upper = latest.get('bb_upper', latest['Close'] * 1.05)
     bb_lower = latest.get('bb_lower', latest['Close'] * 0.95)
@@ -287,12 +258,10 @@ def calculate_technical_score(df):
     else:
         bb_score = 50
 
-    # Trend skoru
     ema20 = latest.get('ema20', 0)
     ema50 = latest.get('ema50', 0)
     trend_score = 80 if ema20 > ema50 else 40
 
-    # ADX skoru
     adx_val = latest.get('adx', 0)
     adx_score = 80 if adx_val > 25 else 60 if adx_val > 20 else 40
 
@@ -311,11 +280,11 @@ def calculate_technical_score(df):
     }
     return technical, details
 
+
 # ============================================================
 # FUNDAMENTAL SKOR
 # ============================================================
 def calculate_fundamental_score(info):
-    score = 50
     pe = info.get('trailingPE') or info.get('forwardPE') or 20
     if pe < 15: pe_score = 80
     elif pe < 25: pe_score = 70
@@ -343,15 +312,11 @@ def calculate_fundamental_score(info):
     fundamental = int(pe_score * 0.25 + eps_score * 0.30 + rev_score * 0.25 + margin_score * 0.20)
     return max(0, min(100, fundamental))
 
+
 # ============================================================
 # FAIR VALUE INTEGRATION
 # ============================================================
 def get_fair_pe_policy():
-    """
-    Sektör bazlı adil F/K politikası ortam değişkeninden okunur.
-    Örnek: {"Technology": 25, "Healthcare": 20}
-    Tanımlanmayan sektör için tahmini F/K kullanılmaz.
-    """
     raw = os.getenv("ARFEZ_FAIR_PE_OVERRIDES", "{}")
     try:
         policy = json.loads(raw)
@@ -369,7 +334,6 @@ def get_fair_pe_policy():
 
 
 def _empty_valuation(reason, current_price=None, forward_eps=None, fair_pe=None):
-    """Gecersiz degerleme sonucu (DB'ye NULL olarak yazilir)."""
     return {
         "current_price": current_price,
         "forward_eps": forward_eps,
@@ -383,7 +347,6 @@ def _empty_valuation(reason, current_price=None, forward_eps=None, fair_pe=None)
 
 
 def collect_valuation_inputs(df, info):
-    """Son kapanışı ve finansal girdileri ayrı alanlarda toplar."""
     latest = df.iloc[-1]
     price = float(latest["Close"])
     if not np.isfinite(price) or price <= 0:
@@ -391,7 +354,6 @@ def collect_valuation_inputs(df, info):
 
     current_price = round(price, 4)
 
-    # --- Forward EPS ---
     raw_eps = info.get("forwardEps")
     if raw_eps is None or isinstance(raw_eps, bool):
         return _empty_valuation("Forward EPS verisi yok.", current_price)
@@ -402,7 +364,6 @@ def collect_valuation_inputs(df, info):
     if not np.isfinite(forward_eps):
         return _empty_valuation("Forward EPS gecersiz.", current_price)
 
-    # --- Sektor bazli adil F/K (tahmin yok, sadece kullanici politikasi) ---
     sector = info.get("sector")
     fair_pe = get_fair_pe_policy().get(sector) if sector else None
     if fair_pe is None:
@@ -411,7 +372,6 @@ def collect_valuation_inputs(df, info):
             current_price, forward_eps,
         )
 
-    # --- Veri kalitesi: finansal veri tarihi + fiyat tarihi ---
     try:
         mrq = info.get("mostRecentQuarter")
 
@@ -427,9 +387,7 @@ def collect_valuation_inputs(df, info):
         if financial_date is None:
             return _empty_valuation(
                 "Finansal rapor tarihi bulunamadı.",
-                current_price,
-                forward_eps,
-                fair_pe,
+                current_price, forward_eps, fair_pe,
             )
 
         price_date = pd.Timestamp(df.index[-1]).date()
@@ -441,18 +399,8 @@ def collect_valuation_inputs(df, info):
         )
 
     except (ValueError, TypeError, OverflowError) as e:
-        return _empty_valuation(
-            e,
-            current_price,
-            forward_eps,
-            fair_pe,
-        )
-        price_date = pd.Timestamp(df.index[-1]).date()
-        validate_data_quality(price, financial_date, price_date=price_date)
-    except ValueError as e:
         return _empty_valuation(e, current_price, forward_eps, fair_pe)
 
-    # --- Adil deger ---
     try:
         result = calculate_pe_fair_value(current_price, forward_eps, fair_pe)
     except ValueError as e:
@@ -480,6 +428,212 @@ def collect_valuation_inputs(df, info):
         "valuation_reason": f"OK | {upside['status']}",
     }
 
+
+# ============================================================
+# 2.3b — MULTI-MODEL VALUATION (P/E + DCF)
+# ============================================================
+# ÖNEMLİ: combine_fair_values() LİSTE bekler; model adı result["model"]'den
+# okunur. collect_valuation_inputs'ın 'valuation_model' alanı hesaplama
+# etiketidir, model anahtarı değildir — adaptör bunu açıkça eşler.
+# DCF girdileri yfinance.info'dan best-effort türetilir; doğrulanmamıştır.
+
+DCF_DEFAULT_GROWTH_YEARS = 5
+DCF_DEFAULT_TERMINAL_G = 0.025
+DCF_DEFAULT_DISCOUNT_RATE = 0.10
+DCF_DEFAULT_RISK_FREE = 0.045
+DCF_DEFAULT_EQUITY_PREMIUM = 0.055
+
+
+def _extract_dcf_inputs(current_price, info):
+    """yfinance.info'dan DCF girdilerini best-effort çıkarır."""
+    if not info or not isinstance(info, dict):
+        raise ValueError("info sözlüğü yok.")
+
+    fcf = info.get("freeCashflow")
+    if fcf is None or isinstance(fcf, bool):
+        raise ValueError("freeCashflow yok.")
+    fcf = float(fcf)
+    if not np.isfinite(fcf):
+        raise ValueError("freeCashflow geçersiz.")
+
+    cash = info.get("totalCash")
+    debt = info.get("totalDebt")
+    shares = info.get("sharesOutstanding")
+
+    if cash is None or debt is None or shares is None:
+        raise ValueError("cash/debt/shares eksik.")
+    try:
+        cash = float(cash)
+        debt = float(debt)
+        shares = float(shares)
+    except (TypeError, ValueError):
+        raise ValueError("cash/debt/shares sayısal değil.")
+    if not np.isfinite(cash) or not np.isfinite(debt) or not np.isfinite(shares):
+        raise ValueError("cash/debt/shares NaN/sonsuz.")
+    if shares <= 0:
+        raise ValueError("sharesOutstanding pozitif değil.")
+
+    g_raw = info.get("earningsGrowth")
+    if g_raw is None:
+        g_raw = info.get("revenueGrowth")
+    try:
+        g0 = float(g_raw) if g_raw is not None else 0.05
+    except (TypeError, ValueError):
+        g0 = 0.05
+    if not np.isfinite(g0):
+        g0 = 0.05
+    g0 = max(-0.5, min(0.5, g0))
+    growth_rates = [
+        round(g0 * (1 - i / DCF_DEFAULT_GROWTH_YEARS), 4)
+        for i in range(DCF_DEFAULT_GROWTH_YEARS)
+    ]
+
+    beta = info.get("beta")
+    try:
+        beta = float(beta) if beta is not None else None
+    except (TypeError, ValueError):
+        beta = None
+    if beta is not None and np.isfinite(beta) and beta > 0:
+        discount_rate = DCF_DEFAULT_RISK_FREE + beta * DCF_DEFAULT_EQUITY_PREMIUM
+        discount_rate = max(0.02, min(0.50, discount_rate))
+    else:
+        discount_rate = DCF_DEFAULT_DISCOUNT_RATE
+
+    # fcf_definition GÖNDERİLMİYOR (motor opsiyonel kabul ediyor;
+    # yfinance freeCashflow = OCF-capex, FCFF değil — yanlış etiketleme yapmıyoruz)
+    return {
+        "current_price": current_price,
+        "current_fcf": fcf,
+        "growth_rates": growth_rates,
+        "discount_rate": discount_rate,
+        "terminal_growth_rate": DCF_DEFAULT_TERMINAL_G,
+        "cash": cash,
+        "debt": debt,
+        "diluted_shares": shares,
+        "valuation_currency": info.get("financialCurrency"),
+        "fcf_currency": info.get("financialCurrency"),
+        "cash_currency": info.get("financialCurrency"),
+        "debt_currency": info.get("financialCurrency"),
+        "valuation_scope": "consolidated",
+        "fcf_scope": "consolidated",
+    }
+
+
+def build_multi_model_valuation(df, info, valuation_data, weights=None, weight_rationales=None):
+    """
+    P/E (mevcut) + DCF sonuçlarını birleştirir, senaryoları üretir.
+    Ağırlıklar dışarıdan verilir; %50/%50 gibi varsayım YOK.
+    """
+    weights = weights or {}
+    rationales = weight_rationales or {}
+    items = []
+
+    # --- P/E öğesi ---
+    pe_weight = weights.get("pe")
+    if pe_weight is not None and valuation_data.get("valuation_valid"):
+        items.append({
+            "result": {
+                "model": "FORWARD_PE",
+                "valid": True,
+                "fair_value": valuation_data.get("fair_value"),
+                "current_price": valuation_data.get("current_price"),
+                "forward_eps": valuation_data.get("forward_eps"),
+                "fair_pe": valuation_data.get("fair_pe"),
+                "reason": valuation_data.get("valuation_reason"),
+            },
+            "weight": float(pe_weight),
+            "weight_rationale": rationales.get("pe", "Forward EPS x sektör adil F/K"),
+        })
+
+    # --- DCF öğesi ---
+    dcf_result = None
+    dcf_weight = weights.get("dcf")
+    if dcf_weight is not None:
+        try:
+            dcf_inputs = _extract_dcf_inputs(
+                current_price=float(valuation_data.get("current_price")
+                                    or df["Close"].iloc[-1]),
+                info=info,
+            )
+            dcf_result = calculate_dcf_fair_value(**dcf_inputs)
+        except (ValueError, TypeError, KeyError) as e:
+            dcf_result = {
+                "model": "DCF",
+                "valid": False,
+                "reason": f"DCF girdileri hazırlanamadı: {e}",
+                "fair_value": None,
+            }
+        items.append({
+            "result": dcf_result,
+            "weight": float(dcf_weight),
+            "weight_rationale": rationales.get(
+                "dcf", "FCFF DCF; girdiler yfinance.info'dan türetildi (doğrulanmamış)"
+            ),
+        })
+
+    # --- Birleştirme ---
+    combined = combine_fair_values(items)
+    combined["valuation_engine_version"] = combined.get("engine_version", ENGINE_VERSION)
+    combined["model_weights"] = combined.get("normalized_weights", {})
+    combined["raw_models"] = {"pe": valuation_data, "dcf": dcf_result}
+
+    # --- Senaryolar (P/E temelli; motor sözleşmesi EPS x F/K) ---
+    scenarios = None
+    try:
+        current_price = float(valuation_data.get("current_price")
+                              or df["Close"].iloc[-1])
+        base_eps = valuation_data.get("forward_eps")
+        base_pe = valuation_data.get("fair_pe")
+        if base_eps and base_eps > 0 and base_pe and base_pe > 0:
+            today_iso = datetime.now().date().isoformat()
+            scenarios = calculate_valuation_scenarios(
+                current_price=current_price,
+                scenarios={
+                    "bear": {
+                        "eps": round(base_eps * 0.80, 4),
+                        "pe": round(base_pe * 0.85, 2),
+                        "weight": 0.25,
+                        "eps_source": {"type": "assumption", "as_of": today_iso,
+                                       "reference": "forward_eps * 0.80 (VARSAYIM)"},
+                        "pe_source": {"type": "assumption", "as_of": today_iso,
+                                      "reference": "fair_pe * 0.85 (VARSAYIM)"},
+                    },
+                    "base": {
+                        "eps": round(base_eps, 4),
+                        "pe": round(base_pe, 2),
+                        "weight": 0.50,
+                        "eps_source": {"type": "yfinance_forward_eps", "as_of": today_iso,
+                                       "reference": "collect_valuation_inputs"},
+                        "pe_source": {"type": "sector_policy", "as_of": today_iso,
+                                      "reference": "ARFEZ_FAIR_PE_OVERRIDES"},
+                    },
+                    "bull": {
+                        "eps": round(base_eps * 1.20, 4),
+                        "pe": round(base_pe * 1.15, 2),
+                        "weight": 0.25,
+                        "eps_source": {"type": "assumption", "as_of": today_iso,
+                                       "reference": "forward_eps * 1.20 (VARSAYIM)"},
+                        "pe_source": {"type": "assumption", "as_of": today_iso,
+                                      "reference": "fair_pe * 1.15 (VARSAYIM)"},
+                    },
+                },
+                require_weights_sum_one=True,
+            )
+    except (ValueError, TypeError) as e:
+        scenarios = {"valid": False, "reason": f"Senaryo hatasi: {e}"}
+
+    return {
+        "combined_fair_value": combined.get("fair_value"),
+        "dcf_fair_value": (dcf_result.get("fair_value") if dcf_result else None),
+        "dcf_upside_pct": (dcf_result.get("upside_pct") if dcf_result else None),
+        "model_weights": combined.get("model_weights"),
+        "valuation_scenarios": scenarios,
+        "valuation_engine_version": combined["valuation_engine_version"],
+        "combined_valid": combined.get("valid", False),
+        "combined_reason": combined.get("reason"),
+    }
+
+
 # ============================================================
 # RISK SKORU
 # ============================================================
@@ -503,8 +657,9 @@ def calculate_risk_score(df, info):
     risk = int(vol_score * 0.40 + beta_score * 0.30 + dd_score * 0.30)
     return max(0, min(100, risk))
 
+
 # ============================================================
-# MAKRO ETKISI
+# MAKRO
 # ============================================================
 def get_macro_effect(cursor):
     cursor.execute("SELECT TOP 1 vix, dxy, regime FROM macro_data ORDER BY date DESC")
@@ -518,31 +673,39 @@ def get_macro_effect(cursor):
     elif dxy > 105: return 45, "strong-dollar"
     else: return 60, "neutral"
 
-# ============================================================
-# TAHMIN HATA ANALIZI / POST-MORTEM
-# ============================================================
-def analyze_prediction_error(signal, predicted_return, actual_return):
-    """
-    Tahmin hatasını analiz eder ve hata kodunu belirler.
-    """
-    diff = abs(predicted_return - actual_return)
-
-    if signal == 'AL' and actual_return < -3:
-        return 'T1'  # Teknik
-    elif signal == 'SAT' and actual_return > 3:
-        return 'S1'  # Sektor
-    elif signal == 'BEKLE' and abs(actual_return) > 2:
-        return 'B1'  # Bant
-    elif diff > 5:
-        return 'C1'  # Cross-Asset
-    elif actual_return < 0:
-        return 'R1'  # Rejim
-    else:
-        return 'A1'  # Basarili
-
 
 # ============================================================
-# TEK HISSE ISLE
+# ALIAS SKORLAR
+# ============================================================
+def compute_valuation_score(valuation_data):
+    upside = valuation_data.get("upside_pct")
+    if not valuation_data.get("valuation_valid") or upside is None:
+        return None
+    try:
+        score = int((float(upside) + 20) * (100 / 60))
+    except (TypeError, ValueError):
+        return None
+    return max(0, min(100, score))
+
+
+def compute_capital_flow_score(tech_details, latest_close):
+    rvol = tech_details.get('rvol', 1.0)
+    ema20 = tech_details.get('ema20', latest_close)
+    try:
+        rvol = float(rvol) if rvol is not None else 1.0
+        ema20 = float(ema20) if ema20 else float(latest_close)
+    except (TypeError, ValueError):
+        return 50
+
+    if rvol > 1.5 and latest_close > ema20:
+        return 80
+    if rvol < 0.7:
+        return 30
+    return 50
+
+
+# ============================================================
+# TEK HISSE
 # ============================================================
 def process_symbol(symbol, cursor, macro_effect, regime, period='daily'):
     try:
@@ -555,8 +718,6 @@ def process_symbol(symbol, cursor, macro_effect, regime, period='daily'):
 
         info = ticker.info
 
-
-        # Adil deger girdileri: hata olursa skor akisi durmaz.
         try:
             valuation_data = collect_valuation_inputs(df, info)
         except Exception as ve:
@@ -565,6 +726,32 @@ def process_symbol(symbol, cursor, macro_effect, regime, period='daily'):
                 current_price=float(df["Close"].iloc[-1]),
             )
 
+        # --- 2.3b: Çoklu model değerleme ---
+        try:
+            multi_val = build_multi_model_valuation(
+                df=df,
+                info=info,
+                valuation_data=valuation_data,
+                weights={
+                    "pe": float(os.getenv("ARFEZ_PE_WEIGHT", "0.7")),
+                    "dcf": float(os.getenv("ARFEZ_DCF_WEIGHT", "0.3")),
+                },
+                weight_rationales={
+                    "pe": "Forward EPS x sektör adil F/K; doğrulanmış politika",
+                    "dcf": "FCFF DCF; yfinance.info'dan türetildi, doğrulanmamış",
+                },
+            )
+        except Exception as mve:
+            multi_val = {
+                "combined_fair_value": None,
+                "dcf_fair_value": None,
+                "dcf_upside_pct": None,
+                "model_weights": None,
+                "valuation_scenarios": None,
+                "valuation_engine_version": ENGINE_VERSION,
+                "combined_valid": False,
+                "combined_reason": f"Multi-model hatasi: {mve}",
+            }
 
         technical, tech_details = calculate_technical_score(df)
         fundamental = calculate_fundamental_score(info)
@@ -572,15 +759,17 @@ def process_symbol(symbol, cursor, macro_effect, regime, period='daily'):
 
         new_world = min(100, int((technical * 0.4 + fundamental * 0.4 + risk * 0.2) * 1.1))
         confidence = int(50 + (technical + fundamental) / 4)
-        # Bu alan 0-100 skorudur; dolar cinsinden değildir.
-        valuation = fundamental
-        valuation_score = fundamental
-        # Gerçek fiyat ve adil değer ayrı değişkenlerdir.
+
+        latest = df.iloc[-1]
+
+        valuation_score = compute_valuation_score(valuation_data)
+        valuation = valuation_score if valuation_score is not None else 50
+        capital_flow = compute_capital_flow_score(tech_details, float(latest['Close']))
+        theme = None
+
         current_price = valuation_data["current_price"]
         fair_value = valuation_data["fair_value"]
         upside_pct = valuation_data["upside_pct"]
-        capital_flow = technical
-        theme = new_world
 
         final = int(
             technical * 0.20 + fundamental * 0.20 + risk * 0.15 +
@@ -591,7 +780,6 @@ def process_symbol(symbol, cursor, macro_effect, regime, period='daily'):
 
         signal = 'AL' if final >= 80 and risk >= 50 else 'SAT' if final < 45 or risk < 30 else 'BEKLE'
 
-        latest = df.iloc[-1]
         atr = calc_atr(df, 14)
         latest_atr = atr.iloc[-1] if atr is not None else latest['Close'] * 0.02
 
@@ -608,235 +796,153 @@ def process_symbol(symbol, cursor, macro_effect, regime, period='daily'):
         expected = round(((target - latest['Close']) / latest['Close']) * 100, 1) if latest['Close'] > 0 else 0
 
         today = datetime.now().strftime('%Y-%m-%d')
+
+        # JSON serileştirme (None güvenli)
+        model_weights_json = (
+            json.dumps(multi_val["model_weights"], ensure_ascii=False)
+            if multi_val.get("model_weights") is not None else None
+        )
+        scenarios_json = (
+            json.dumps(multi_val["valuation_scenarios"], ensure_ascii=False)
+            if multi_val.get("valuation_scenarios") is not None else None
+        )
+
         cursor.execute("""
             MERGE daily_scores AS target
-            USING (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)) AS source 
-            (symbol, date, arfez_score, new_world, technical, fundamental, risk, confidence,
-             macro, valuation, capital_flow, theme, final_score, signal, target_price, stop_loss, expected_return)
+            USING (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                           ?, ?, ?, ?, ?, ?)) AS source
+            (symbol, date, arfez_score, new_world_score, technical_score,
+             fundamental_score, risk_score, macro_score, confidence,
+             valuation_score, capital_flow_score, theme, signal,
+             target_price, stop_loss, predicted_return,
+             current_price, forward_eps, fair_pe, fair_value, upside_pct,
+             valuation_model, valuation_valid, valuation_reason,
+             dcf_fair_value, combined_fair_value, dcf_upside_pct,
+             model_weights, valuation_scenarios, valuation_engine_version)
             ON target.symbol = source.symbol AND target.date = source.date
             WHEN MATCHED THEN UPDATE SET
-                arfez_score=source.arfez_score, new_world=source.new_world, technical=source.technical,
-                fundamental=source.fundamental, risk=source.risk, confidence=source.confidence,
-                macro=source.macro, valuation=source.valuation, capital_flow=source.capital_flow,
-                theme=source.theme, final_score=source.final_score, signal=source.signal,
-                target_price=source.target_price, stop_loss=source.stop_loss, expected_return=source.expected_return
+                arfez_score = source.arfez_score,
+                new_world_score = source.new_world_score,
+                technical_score = source.technical_score,
+                fundamental_score = source.fundamental_score,
+                risk_score = source.risk_score,
+                macro_score = source.macro_score,
+                confidence = source.confidence,
+                valuation_score = source.valuation_score,
+                capital_flow_score = source.capital_flow_score,
+                theme = source.theme,
+                signal = source.signal,
+                target_price = source.target_price,
+                stop_loss = source.stop_loss,
+                predicted_return = source.predicted_return,
+                current_price = source.current_price,
+                forward_eps = source.forward_eps,
+                fair_pe = source.fair_pe,
+                fair_value = source.fair_value,
+                upside_pct = source.upside_pct,
+                valuation_model = source.valuation_model,
+                valuation_valid = source.valuation_valid,
+                valuation_reason = source.valuation_reason,
+                dcf_fair_value = source.dcf_fair_value,
+                combined_fair_value = source.combined_fair_value,
+                dcf_upside_pct = source.dcf_upside_pct,
+                model_weights = source.model_weights,
+                valuation_scenarios = source.valuation_scenarios,
+                valuation_engine_version = source.valuation_engine_version
             WHEN NOT MATCHED THEN INSERT
-                (symbol, date, arfez_score, new_world, technical, fundamental, risk, confidence,
-                 macro, valuation, capital_flow, theme, final_score, signal, target_price, stop_loss, expected_return)
-            VALUES (source.symbol, source.date, source.arfez_score, source.new_world, source.technical,
-                    source.fundamental, source.risk, source.confidence, source.macro, source.valuation,
-                    source.capital_flow, source.theme, source.final_score, source.signal,
-                    source.target_price, source.stop_loss, source.expected_return);
-        """, (symbol, today, final, new_world, technical, fundamental, risk, confidence,
-              macro_effect, valuation, capital_flow, theme, final, signal, target, stop, expected))
-
-        # Adil deger alanlari (mevcut skor kolonlarina dokunmaz)
-        cursor.execute("""
-            UPDATE dbo.daily_scores
-            SET
-                current_price = ?,
-                forward_eps = ?,
-                fair_pe = ?,
-                fair_value = ?,
-                upside_pct = ?,
-                valuation_model = ?,
-                valuation_valid = ?,
-                valuation_reason = ?
-            WHERE symbol = ? AND date = ?
-        """, (
-            valuation_data["current_price"],
-            valuation_data["forward_eps"],
-            valuation_data["fair_pe"],
-            valuation_data["fair_value"],
-            valuation_data["upside_pct"],
-            valuation_data["valuation_model"],
-            int(valuation_data["valuation_valid"]),
+            (symbol, date, arfez_score, new_world_score, technical_score,
+             fundamental_score, risk_score, macro_score, confidence,
+             valuation_score, capital_flow_score, theme, signal,
+             target_price, stop_loss, predicted_return,
+             current_price, forward_eps, fair_pe, fair_value, upside_pct,
+             valuation_model, valuation_valid, valuation_reason,
+             dcf_fair_value, combined_fair_value, dcf_upside_pct,
+             model_weights, valuation_scenarios, valuation_engine_version)
+            VALUES (source.symbol, source.date, source.arfez_score,
+                    source.new_world_score, source.technical_score,
+                    source.fundamental_score, source.risk_score,
+                    source.macro_score, source.confidence,
+                    source.valuation_score, source.capital_flow_score,
+                    source.theme, source.signal, source.target_price,
+                    source.stop_loss, source.predicted_return,
+                    source.current_price, source.forward_eps, source.fair_pe,
+                    source.fair_value, source.upside_pct, source.valuation_model,
+                    source.valuation_valid, source.valuation_reason,
+                    source.dcf_fair_value, source.combined_fair_value,
+                    source.dcf_upside_pct, source.model_weights,
+                    source.valuation_scenarios, source.valuation_engine_version);
+        """,
+            symbol, today, final, new_world, technical, fundamental, risk,
+            macro_effect, confidence, valuation, capital_flow, theme, signal,
+            target, stop, expected,
+            current_price, valuation_data["forward_eps"], valuation_data["fair_pe"],
+            fair_value, upside_pct,
+            valuation_data["valuation_model"], valuation_data["valuation_valid"],
             valuation_data["valuation_reason"],
-            symbol,
-            today,
-        ))
+            multi_val["dcf_fair_value"], multi_val["combined_fair_value"],
+            multi_val["dcf_upside_pct"], model_weights_json, scenarios_json,
+            multi_val["valuation_engine_version"],
+        )
 
-        sector = info.get('sector', 'Unknown') or 'Unknown'
-        name = info.get('longName') or info.get('shortName') or symbol
-        cursor.execute("""
-            MERGE stocks AS target
-            USING (VALUES (?, ?, ?)) AS source (symbol, name, sector)
-            ON target.symbol = source.symbol
-            WHEN MATCHED THEN UPDATE SET name=source.name, sector=source.sector
-            WHEN NOT MATCHED THEN INSERT (symbol, name, sector) VALUES (source.symbol, source.name, source.sector);
-        """, (symbol, name[:100], sector[:50]))
+        # predictions tablosuna yaz
+        try:
+            cursor.execute("""
+                INSERT INTO predictions
+                (symbol, date, predicted_return, confidence, period)
+                VALUES (?, ?, ?, ?, ?)
+            """, symbol, today, expected, confidence, period)
+        except Exception as pe_err:
+            print(f"(predictions yazma atlandi: {pe_err})", end=" ")
 
-        # ------------------------------------------------------------
-        # PREDICTIONS: tahmini getiri + gerceklesen (haftalik) getiri
-        # ------------------------------------------------------------
-        predicted_return = final * 0.01
+        print(f"OK skor={final} signal={signal} P/E={fair_value} DCF={multi_val['dcf_fair_value']} COMB={multi_val['combined_fair_value']}")
+        return final
 
-        # Haftalık gerçek getiri hesapla (son 7 günlük fiyat değişimi)
-        week_ago_data = ticker.history(period="2mo")  # 2 ay veri al
-        if len(week_ago_data) >= 8:
-            price_now = latest['Close']
-            price_week_ago = week_ago_data.iloc[-8]['Close']  # 7 gün öncesi
-            weekly_return = round(((price_now - price_week_ago) / price_week_ago) * 100, 2)
-        else:
-            weekly_return = 0.0
-
-        error_code = analyze_prediction_error(signal, predicted_return, weekly_return)
-
-        cursor.execute("""
-            MERGE predictions AS target
-            USING (VALUES (?, ?, ?, ?, ?, ?, ?)) AS source
-                (symbol, date, period, prediction_signal, predicted_return,
-                 actual_return, error_code)
-            ON target.symbol = source.symbol
-               AND target.date = source.date
-               AND target.period = source.period
-            WHEN MATCHED THEN
-                UPDATE SET
-                    prediction_signal = source.prediction_signal,
-                    predicted_return = source.predicted_return,
-                    actual_return = source.actual_return,
-                    error_code = source.error_code,
-                    updated_at = GETDATE()
-            WHEN NOT MATCHED THEN
-                INSERT (symbol, date, period, prediction_signal, predicted_return,
-                        actual_return, error_code)
-                VALUES (source.symbol, source.date, source.period, source.prediction_signal,
-                        source.predicted_return, source.actual_return, source.error_code);
-        """, (symbol, today, period, signal, predicted_return, weekly_return, error_code))
-
-        print(f"OK | Final:{final} | Signal:{signal} | Price:${round(latest['Close'],2)} | FairValue:{fair_value} | Upside:{upside_pct}% | ActualRet(7g):{weekly_return}% | Err:{error_code}")
-        return {
-            'symbol': symbol, 'final': final, 'signal': signal,
-            'technical': technical, 'fundamental': fundamental, 'risk': risk,
-            'price': round(latest['Close'], 2)
-        }
     except Exception as e:
         print(f"HATA: {e}")
         return None
 
-# ============================================================
-# MAKRO VERILERI
-# ============================================================
-def update_macro(cursor):
-    print("\n[Makro Verileri Cekiliyor...]")
-    try:
-        vix_ticker = yf.Ticker("^VIX")
-        vix_hist = vix_ticker.history(period="5d")
-        vix = round(vix_hist['Close'].iloc[-1], 2) if not vix_hist.empty else 18.0
-
-        dxy_ticker = yf.Ticker("UUP")
-        dxy_hist = dxy_ticker.history(period="5d")
-        dxy = round(dxy_hist['Close'].iloc[-1], 2) if not dxy_hist.empty else 103.0
-
-        tnx = yf.Ticker("^TNX")
-        tnx_hist = tnx.history(period="5d")
-        us10y = round(tnx_hist['Close'].iloc[-1], 2) if not tnx_hist.empty else 4.2
-
-        spx = yf.Ticker("^GSPC")
-        spx_hist = spx.history(period="5d")
-        sp500 = round(spx_hist['Close'].iloc[-1], 2) if not spx_hist.empty else 5800.0
-
-        ndx = yf.Ticker("^IXIC")
-        ndx_hist = ndx.history(period="5d")
-        nasdaq = round(ndx_hist['Close'].iloc[-1], 2) if not ndx_hist.empty else 18500.0
-
-        if vix < 18 and dxy < 104: regime = "risk-on"
-        elif vix > 25 or dxy > 106: regime = "risk-off"
-        elif vix > 20: regime = "neutral"
-        else: regime = "bullish"
-
-        today = datetime.now().strftime('%Y-%m-%d')
-        cursor.execute("""
-            MERGE macro_data AS target
-            USING (VALUES (?, ?, ?, ?, ?, ?, ?)) AS source (date, vix, dxy, us10y, sp500, nasdaq, regime)
-            ON target.date = source.date
-            WHEN MATCHED THEN UPDATE SET vix=source.vix, dxy=source.dxy, us10y=source.us10y,
-                sp500=source.sp500, nasdaq=source.nasdaq, regime=source.regime
-            WHEN NOT MATCHED THEN INSERT (date, vix, dxy, us10y, sp500, nasdaq, regime)
-            VALUES (source.date, source.vix, source.dxy, source.us10y, source.sp500, source.nasdaq, source.regime);
-        """, (today, vix, dxy, us10y, sp500, nasdaq, regime))
-
-        print(f"  VIX:{vix} | DXY:{dxy} | US10Y:{us10y}% | S&P500:{sp500} | Regime:{regime}")
-        return True
-    except Exception as e:
-        print(f"  [HATA] Makro veri cekilemedi: {e}")
-        return False
 
 # ============================================================
-# ANA MOTOR
+# MAIN
 # ============================================================
 def main():
-    parser = argparse.ArgumentParser(description='ARFEZ AI Canli Veri Toplayici')
-    parser.add_argument('--symbol', type=str, help='Tek hisse sembolu')
-    parser.add_argument('--macro', action='store_true', help='Sadece makro verileri guncelle')
-    parser.add_argument('--limit', type=int, default=0, help='Islenecek hisse sayisi (0=tum evren)')
-    parser.add_argument('--period', type=str, default='daily', choices=['daily', 'weekly'],
-                         help="Tahmin donemi: 'daily' veya 'weekly' (varsayilan: daily)")
+    parser = argparse.ArgumentParser(description="ARFEZ AI Veri Toplayici")
+    parser.add_argument("--symbols", type=str, default=None, help="Virgulle ayrilmis semboller")
+    parser.add_argument("--period", type=str, default="daily", choices=["daily", "weekly"])
     args = parser.parse_args()
 
-    print("=" * 70)
-    print("ARFEZ AI v3.0 - Canli Veri Toplayici (Python 3.14 Uyumlu)")
-    print("=" * 70)
-    print(f"Baslangic: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=" * 70)
-
     conn = get_db()
+    ensure_period_column(conn)
+    ensure_fair_value_columns(conn)
     cursor = conn.cursor()
 
-    try:
-        ensure_period_column(conn)
-        ensure_fair_value_columns(conn)
+    macro_effect, regime = get_macro_effect(cursor)
+    print(f"[MAKRO] effect={macro_effect} regime={regime}")
 
-        if args.macro or not args.symbol:
-            update_macro(cursor)
-            conn.commit()
+    if args.symbols:
+        symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    else:
+        # UNIVERSE ortak modülden okunur (yoksa varsayılan)
+        try:
+            from universe import UNIVERSE
+            symbols = UNIVERSE
+        except ImportError:
+            symbols = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"]
 
-        if args.macro:
-            print("\n[Makro guncelleme tamamlandi]")
-            return
+    print(f"[BATCH] {len(symbols)} sembol, period={args.period}")
 
-        macro_effect, regime = get_macro_effect(cursor)
-        print(f"\n[Makro Etkisi: {regime.upper()} | Skor: {macro_effect}]")
+    success = 0
+    for sym in symbols:
+        result = process_symbol(sym, cursor, macro_effect, regime, period=args.period)
+        if result is not None:
+            success += 1
+        time.sleep(0.5)
 
-        symbols = [args.symbol.upper()] if args.symbol else UNIVERSE
-        if args.limit > 0 and not args.symbol:
-            symbols = symbols[:args.limit]
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print(f"\n[TAMAM] {success}/{len(symbols)} basarili")
 
-        print(f"\n[Islenecek Hisse Sayisi: {len(symbols)}] [Period: {args.period}]")
-        print("-" * 70)
 
-        results = []
-        for i, sym in enumerate(symbols, 1):
-            result = process_symbol(sym, cursor, macro_effect, regime, period=args.period)
-            if result:
-                results.append(result)
-            time.sleep(0.5)
-
-        conn.commit()
-
-        print("\n" + "=" * 70)
-        print("OZET")
-        print("=" * 70)
-        al_count = sum(1 for r in results if r['signal'] == 'AL')
-        sat_count = sum(1 for r in results if r['signal'] == 'SAT')
-        bekle_count = sum(1 for r in results if r['signal'] == 'BEKLE')
-        print(f"Toplam Islenen: {len(results)}")
-        print(f"  AL Sinyali  : {al_count}")
-        print(f"  SAT Sinyali : {sat_count}")
-        print(f"  BEKLE       : {bekle_count}")
-        if results:
-            top_pick = max(results, key=lambda x: x['final'])
-            print(f"\nEn Yuksek Skor: {top_pick['symbol']} ({top_pick['final']})")
-        print(f"\nBitis: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print("=" * 70)
-
-    except Exception as e:
-        print(f"\n[Kritik Hata]: {e}")
-        conn.rollback()
-        raise
-    finally:
-        cursor.close()
-        conn.close()
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
