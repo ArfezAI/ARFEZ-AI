@@ -31,8 +31,10 @@ body{background:var(--bg-0);color:var(--text-1);font-family:var(--font);line-hei
 .grid-6{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
 @media(max-width:1000px){.grid-2,.grid-3,.grid-4,.grid-6{grid-template-columns:1fr}}
 .card{background:var(--bg-1);border:1px solid var(--border);border-radius:var(--radius);padding:20px;position:relative}
-.card-title{font-size:13px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.card-title{font-size:13px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .last-update{font-size:11px;color:var(--text-3);font-weight:500;text-transform:none;letter-spacing:0}
+/* 5.7 — DEMO VERİSİ rozeti */
+.demo-badge{display:inline-flex;align-items:center;gap:4px;background:rgba(245,158,11,0.2);color:var(--warning);border:1px solid var(--warning);border-radius:100px;padding:3px 10px;font-size:10px;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;margin-left:8px;animation:pulse 2s infinite}
 .score-wrap{display:flex;flex-direction:column;align-items:center;gap:6px}
 .score-wrap svg{transform:rotate(-90deg)}
 .score-bg{fill:none;stroke:var(--bg-3);stroke-width:8}
@@ -365,20 +367,9 @@ Veriler yükleniyor...
 <div class="metric"><span class="metric-k">Sektor Konsensusu</span><span class="metric-v">Ortak tema</span></div>
 <div class="metric"><span class="metric-k">Fon Konsensus Puani</span><span class="metric-v accent">Agirlikli</span></div>
 </div>
+<!-- 5.5 — Sabit NVDA/PLTR/ELF kartları kaldırıldı -->
 <div id="fundConsensus">
-<div style="font-size:12px;color:var(--text-3);font-weight:600;margin-bottom:10px">FON KONSENSUS ANALIZI</div>
-<div style="padding:12px;background:var(--bg-0);border-radius:8px;margin-bottom:8px">
-<div style="font-size:13px;font-weight:700;margin-bottom:4px">NVDA — Yapay Zeka Altyapisi</div>
-<div style="font-size:12px;color:var(--text-3)">7/10 fon artirim yapmis • 2/10 azaltim • Ortalama agirlik %4.2</div>
-</div>
-<div style="padding:12px;background:var(--bg-0);border-radius:8px;margin-bottom:8px">
-<div style="font-size:13px;font-weight:700;margin-bottom:4px">PLTR — Veri Analitigi</div>
-<div style="font-size:12px;color:var(--text-3)">5/10 fon yeni pozisyon • 3/10 artirim • Sektor rotasyonu aktif</div>
-</div>
-<div style="padding:12px;background:var(--bg-0);border-radius:8px">
-<div style="font-size:13px;font-weight:700;margin-bottom:4px">ELF — Tuketici Guzellik</div>
-<div style="font-size:12px;color:var(--text-3)">2/10 fon artirim • 6/10 notr • Dusuk kurumsal ilgi</div>
-</div>
+<div class="empty-state">Konsensus verisi yükleniyor...</div>
 </div>
 </div>
 </div>
@@ -389,15 +380,16 @@ Veriler yükleniyor...
 <div class="grid-2">
 <div class="card">
 <div class="card-title">Backtest Metrikleri <span class="last-update" id="backtest-update">Bekleniyor...</span></div>
+<!-- 5.6 — İlk HTML'deki sabit değerler -- yapıldı -->
 <div id="backtestMetrics">
-<div class="metric"><span class="metric-k">Yon Dogrulugu</span><span class="metric-v good">%72.4</span></div>
-<div class="metric"><span class="metric-k">Hedef Isabet Orani</span><span class="metric-v good">%58.3</span></div>
-<div class="metric"><span class="metric-k">Stop Isabet Orani</span><span class="metric-v bad">%21.7</span></div>
-<div class="metric"><span class="metric-k">Bant Dogrulugu</span><span class="metric-v good">%64.1</span></div>
-<div class="metric"><span class="metric-k">Guven Kalibrasyonu</span><span class="metric-v accent">±4.2%</span></div>
-<div class="metric"><span class="metric-k">Maksimum Dusus</span><span class="metric-v bad">-8.4%</span></div>
-<div class="metric"><span class="metric-k">Sharpe Orani</span><span class="metric-v good">1.34</span></div>
-<div class="metric"><span class="metric-k">Sortino Orani</span><span class="metric-v good">1.87</span></div>
+<div class="metric"><span class="metric-k">Yon Dogrulugu</span><span class="metric-v">--</span></div>
+<div class="metric"><span class="metric-k">Hedef Isabet Orani</span><span class="metric-v">--</span></div>
+<div class="metric"><span class="metric-k">Stop Isabet Orani</span><span class="metric-v">--</span></div>
+<div class="metric"><span class="metric-k">Bant Dogrulugu</span><span class="metric-v">--</span></div>
+<div class="metric"><span class="metric-k">Guven Kalibrasyonu</span><span class="metric-v">--</span></div>
+<div class="metric"><span class="metric-k">Maksimum Dusus</span><span class="metric-v">--</span></div>
+<div class="metric"><span class="metric-k">Sharpe Orani</span><span class="metric-v">--</span></div>
+<div class="metric"><span class="metric-k">Sortino Orani</span><span class="metric-v">--</span></div>
 </div>
 </div>
 <div class="card">
@@ -522,10 +514,11 @@ Olay sonrasi analiz verileri burada görünecek...
 </div>
 <div class="card">
 <div class="card-title">Gun Ici Rejim Takibi</div>
-<div class="metric"><span class="metric-k">09:30 Sabah Kontrol</span><span class="metric-v good">✓ Tamamlandi</span></div>
-<div class="metric"><span class="metric-k">12:00 Ogle Kontrol</span><span class="metric-v good">✓ Tamamlandi</span></div>
-<div class="metric"><span class="metric-k">14:00 Ogleden Sonra</span><span class="metric-v accent">⏳ Bekliyor</span></div>
-<div class="metric"><span class="metric-k">15:30 Kapanis Oncesi</span><span class="metric-v">—</span></div>
+<!-- 5.4 — Sabit "✓ Tamamlandi" değerleri — yapıldı, id'ler eklendi -->
+<div class="metric"><span class="metric-k">09:30 Sabah Kontrol</span><span class="metric-v" id="pipe-0930">—</span></div>
+<div class="metric"><span class="metric-k">12:00 Ogle Kontrol</span><span class="metric-v" id="pipe-1200">—</span></div>
+<div class="metric"><span class="metric-k">14:00 Ogleden Sonra</span><span class="metric-v" id="pipe-1400">—</span></div>
+<div class="metric"><span class="metric-k">15:30 Kapanis Oncesi</span><span class="metric-v" id="pipe-1530">—</span></div>
 <div style="margin-top:16px;padding:12px;background:var(--bg-0);border-radius:var(--radius)">
 <div style="font-size:12px;color:var(--text-3);font-weight:600;margin-bottom:8px">ERKEN UYARI ALARMLARI</div>
 <div class="metric"><span class="metric-k">VIX +10% (Sari)</span><span class="metric-v">Pasif</span></div>
@@ -545,7 +538,13 @@ Olay sonrasi analiz verileri burada görünecek...
 
 <script>
 
-const API_BASE = "http://127.0.0.1:5000/api";
+// 5.8 — API_BASE localStorage'dan okunabilir + /api normalize
+var _rawApiBase = localStorage.getItem("arfez_api") || "http://127.0.0.1:5000/api";
+_rawApiBase = String(_rawApiBase).trim().replace(/\/+$/, "");
+if(!/\/api$/.test(_rawApiBase)) { _rawApiBase = _rawApiBase + "/api"; }
+const API_BASE = _rawApiBase;
+console.log("[ARFEZ] API_BASE =", API_BASE);
+
 let allStocks = [];
 let apiOnline = false;
 let lastToast = null;
@@ -599,6 +598,25 @@ function setApiStatus(online, msg) {
     el.textContent = msg || (online ? "API: Online" : "API: Offline");
     if(online && lastToast === false) { toast("API baglantisi saglandi", "success"); lastToast = true; }
     if(!online && lastToast !== false) { toast("API baglantisi kesildi — cache aktif", "error", 6000); lastToast = false; }
+}
+
+/* 5.7 — DEMO VERİSİ rozet yönetimi
+   Her fetch öncesi ilgili kart temizlenir; yanıtta source === "live_fallback" ise rozet eklenir. */
+function setDemoBadge(cardTitleSelector, isDemo) {
+    // cardTitleSelector: card-title element'i (ör. "#backtest .card-title")
+    var el = document.querySelector(cardTitleSelector);
+    if(!el) return;
+    var existing = el.querySelector(".demo-badge");
+    if(isDemo) {
+        if(!existing) {
+            var badge = document.createElement("span");
+            badge.className = "demo-badge";
+            badge.textContent = "DEMO VERİSİ";
+            el.appendChild(badge);
+        }
+    } else if(existing) {
+        existing.remove();
+    }
 }
 
 function checkApiHealth() {
@@ -660,6 +678,7 @@ async function loadScores() {
         updateRing("capital", data.capital_flow != null ? data.capital_flow : 0);
         updateRing("theme", data.theme != null ? data.theme : 0);
         updateRing("final", data.final != null ? data.final : 0);
+        setDemoBadge("#dashboard .card-title", data.source === "live_fallback");
         cacheSet("scores", data);
         setApiStatus(true);
     } catch(err) {
@@ -676,6 +695,7 @@ async function loadScores() {
             updateRing("capital", cached.capital_flow != null ? cached.capital_flow : 0);
             updateRing("theme", cached.theme != null ? cached.theme : 0);
             updateRing("final", cached.final != null ? cached.final : 0);
+            setDemoBadge("#dashboard .card-title", cached.source === "live_fallback");
         }
         setApiStatus(false);
     }
@@ -697,12 +717,14 @@ async function loadMacro() {
         if(!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
         renderMacroData(data);
+        setDemoBadge("#dashboard .card-title", data.source === "live_fallback");
         cacheSet("macro", data);
         setUpdate("macro-update", Date.now());
     } catch(err) {
         const cached = cacheGet("macro", 300000);
         if(cached) {
             renderMacroData(cached);
+            setDemoBadge("#dashboard .card-title", cached.source === "live_fallback");
             try {
                 const raw = localStorage.getItem("arfez_macro");
                 if(raw) { const obj = JSON.parse(raw); setUpdate("macro-update", obj.t); }
@@ -719,6 +741,7 @@ async function loadStocks() {
         const data = await res.json();
         allStocks = Array.isArray(data) ? data : (data.stocks || []);
         renderStocks(allStocks);
+        setDemoBadge("#stocks .card-title", data && data.source === "live_fallback");
         cacheSet("stocks", allStocks);
         setUpdate("stocks-update", Date.now());
         setApiStatus(true);
@@ -784,6 +807,7 @@ async function loadWatchlist() {
             if(!isFinal) html.push('<div class="layer-arrow">↓</div>');
         });
         container.innerHTML = html.join("");
+        setDemoBadge("#watchlist .card-title", data && data.source === "live_fallback");
         cacheSet("watchlist", data);
         setUpdate("watchlist-update", Date.now());
     } catch(err) {
@@ -809,9 +833,9 @@ async function loadEliteFunds() {
                 return Object.assign({symbol: sym}, data.consensus[sym]);
             }).sort(function(a, b) { return b.count - a.count; }).slice(0, 6);
 
-            let html = '<div style="font-size:12px;color:var(--text-3);font-weight:600;margin-bottom:10px">FON KONSENSUS ANALIZI (2026Q2)</div>';
+            let html = '<div style="font-size:12px;color:var(--text-3);font-weight:600;margin-bottom:10px">FON KONSENSUS ANALIZI</div>';
             if(!entries.length) {
-                html += '<div style="color:var(--text-3);font-size:12px">Veri bulunamadi.</div>';
+                html += '<div class="empty-state">Konsensus verisi bulunamadi.</div>';
             }
             html += entries.map(function(c) {
                 return '<div style="padding:12px;background:var(--bg-0);border-radius:8px;margin-bottom:8px">' +
@@ -821,30 +845,49 @@ async function loadEliteFunds() {
                     ' fon azaltim &bull; Ort. agirlik %' + c.avg_weight + '</div></div>';
             }).join("");
             container.innerHTML = html;
+        } else {
+            // 5.5 — Konsensus verisi yoksa boş göster
+            container.innerHTML = '<div class="empty-state">Konsensus verisi bulunamadi.</div>';
         }
+        setDemoBadge("#elite .card-title", data && data.source === "live_fallback");
         cacheSet("elite-funds", data);
         setUpdate("elite-update", Date.now());
     } catch(err) {
+        // 5.5 — API çökerse sahte konsensus kalmasın
+        var container = document.getElementById("fundConsensus");
+        if(container) container.innerHTML = '<div class="empty-state">Veri alınamadı.</div>';
         setUpdate("elite-update", null);
     }
 }
 
+/* 5.1 — loadBacktest: hardcoded fallback'ler kaldırıldı; değer yoksa "--" ve birim gösterilmez */
 async function loadBacktest() {
     try {
         const res = await fetch(API_BASE + "/backtest");
         if(!res.ok) throw new Error("HTTP " + res.status);
         const d = await res.json();
+
+        function fmtPct(v, sign) {
+            if(v == null) return '--';
+            return (sign === "plusminus" ? '±' : '%') + v + (sign === "plusminus" ? '%' : '');
+        }
+        function fmtRaw(v) {
+            return v != null ? v : '--';
+        }
+
         const container = document.getElementById("backtestMetrics");
         container.innerHTML =
-            '<div class="metric"><span class="metric-k">Yon Dogrulugu</span><span class="metric-v good">%' + (d.direction_accuracy != null ? d.direction_accuracy : "72.4") + '</span></div>' +
-            '<div class="metric"><span class="metric-k">Hedef Isabet Orani</span><span class="metric-v good">%' + (d.target_hit_rate != null ? d.target_hit_rate : "58.3") + '</span></div>' +
-            '<div class="metric"><span class="metric-k">Stop Isabet Orani</span><span class="metric-v bad">%' + (d.stop_hit_rate != null ? d.stop_hit_rate : "21.7") + '</span></div>' +
-            '<div class="metric"><span class="metric-k">Bant Dogrulugu</span><span class="metric-v good">%' + (d.band_accuracy != null ? d.band_accuracy : "64.1") + '</span></div>' +
-            '<div class="metric"><span class="metric-k">Guven Kalibrasyonu</span><span class="metric-v accent">±' + (d.calibration_error != null ? d.calibration_error : "4.2") + '%</span></div>' +
-            '<div class="metric"><span class="metric-k">Maksimum Dusus</span><span class="metric-v bad">' + (d.max_drawdown != null ? d.max_drawdown : "-8.4") + '%</span></div>' +
-            '<div class="metric"><span class="metric-k">Sharpe Orani</span><span class="metric-v good">' + (d.sharpe != null ? d.sharpe : "1.34") + '</span></div>' +
-            '<div class="metric"><span class="metric-k">Sortino Orani</span><span class="metric-v good">' + (d.sortino != null ? d.sortino : "1.87") + '</span></div>' +
-            '<div class="metric"><span class="metric-k">Toplam Tahmin</span><span class="metric-v accent">' + (d.total_predictions != null ? d.total_predictions : "--") + '</span></div>';
+            '<div class="metric"><span class="metric-k">Yon Dogrulugu</span><span class="metric-v good">' + fmtPct(d.direction_accuracy) + '</span></div>' +
+            '<div class="metric"><span class="metric-k">Hedef Isabet Orani</span><span class="metric-v good">' + fmtPct(d.target_hit_rate) + '</span></div>' +
+            '<div class="metric"><span class="metric-k">Stop Isabet Orani</span><span class="metric-v bad">' + fmtPct(d.stop_hit_rate) + '</span></div>' +
+            '<div class="metric"><span class="metric-k">Bant Dogrulugu</span><span class="metric-v good">' + fmtPct(d.band_accuracy) + '</span></div>' +
+            '<div class="metric"><span class="metric-k">Guven Kalibrasyonu</span><span class="metric-v accent">' + fmtPct(d.calibration_error, "plusminus") + '</span></div>' +
+            '<div class="metric"><span class="metric-k">Maksimum Dusus</span><span class="metric-v bad">' + (d.max_drawdown != null ? d.max_drawdown + '%' : '--') + '</span></div>' +
+            '<div class="metric"><span class="metric-k">Sharpe Orani</span><span class="metric-v good">' + fmtRaw(d.sharpe) + '</span></div>' +
+            '<div class="metric"><span class="metric-k">Sortino Orani</span><span class="metric-v good">' + fmtRaw(d.sortino) + '</span></div>' +
+            '<div class="metric"><span class="metric-k">Toplam Tahmin</span><span class="metric-v accent">' + fmtRaw(d.total_predictions) + '</span></div>';
+
+        setDemoBadge("#backtest .card-title", d.source === "live_fallback");
         cacheSet("backtest", d);
         setUpdate("backtest-update", Date.now());
     } catch(err) {
@@ -865,6 +908,7 @@ async function loadMemoryStats() {
         if(errorsEl) errorsEl.textContent = d.analyzed_errors != null ? d.analyzed_errors : "--";
         if(rulesEl) rulesEl.textContent = d.resolved_rules != null ? d.resolved_rules : "--";
         if(calEl) calEl.textContent = d.calibration_improvement ? "+" + d.calibration_improvement + "%" : "--";
+        setDemoBadge("#memory .card-title", d.source === "live_fallback");
         cacheSet("memory-stats", d);
         setUpdate("memory-update", Date.now());
     } catch(err) {
@@ -926,6 +970,7 @@ async function loadKnowledgeGraph() {
             html += '</div>';
             container.innerHTML = html;
         }
+        setDemoBadge("#knowledge .card-title", data && data.source === "live_fallback");
         cacheSet("knowledge-graph", data);
         setUpdate("knowledge-update", Date.now());
     } catch(err) {
@@ -933,6 +978,7 @@ async function loadKnowledgeGraph() {
     }
 }
 
+/* 5.4 — Pipeline render: adımlar + gün içi rejim takibi dinamik */
 async function loadPipeline() {
     try {
         const res = await fetch(API_BASE + "/pipeline");
@@ -945,6 +991,22 @@ async function loadPipeline() {
                 return '<div class="pipe ' + cls + '">' + (i + 1) + ". " + step.name + '</div>';
             }).join("");
         }
+        // Gün içi rejim takibi (5.4)
+        var checks = data && data.intraday_checks ? data.intraday_checks : null;
+        var map = [["pipe-0930","0930"], ["pipe-1200","1200"], ["pipe-1400","1400"], ["pipe-1530","1530"]];
+        map.forEach(function(pair) {
+            var el = document.getElementById(pair[0]);
+            if(!el) return;
+            var c = checks ? (checks[pair[1]] || checks[pair[0]] || null) : null;
+            if(!c) { el.textContent = "—"; el.className = "metric-v"; return; }
+            var status = c.status || c;
+            if(status === "done" || status === "completed") { el.textContent = "✓ Tamamlandi"; el.className = "metric-v good"; }
+            else if(status === "running") { el.textContent = "⏳ Calisiyor"; el.className = "metric-v accent"; }
+            else if(status === "waiting" || status === "pending") { el.textContent = "⏳ Bekliyor"; el.className = "metric-v accent"; }
+            else if(status === "missed" || status === "error") { el.textContent = "✗ Atlatildi"; el.className = "metric-v bad"; }
+            else { el.textContent = "—"; el.className = "metric-v"; }
+        });
+        setDemoBadge("#pipeline .card-title", data && data.source === "live_fallback");
         cacheSet("pipeline", data);
         setUpdate("pipeline-update", Date.now());
     } catch(err) {
@@ -1023,6 +1085,7 @@ document.addEventListener("keydown", function(e) {
 });
 
 
+/* 5.2 — loadPostmortem: error_distribution dizi VEYA nesne destekleniyor; most_frequent_error da normalize ediliyor */
 async function loadPostmortem() {
     try {
         const res = await fetch(API_BASE + "/postmortem/stats");
@@ -1033,23 +1096,42 @@ async function loadPostmortem() {
         document.getElementById("posttotal").textContent =
             d.total_predictions != null ? d.total_predictions : "--";
 
-        // Hata dağılımı
+        // Hata dağılımı — dizi veya nesne
         var dist = d.error_distribution || d.error_dist || d.distribution;
-        if(dist && typeof dist === "object") {
-            document.getElementById("postdist").textContent =
-                Object.entries(dist).map(function(x) {
-                    return x[0] + ": " + x[1];
-                }).join(" • ");
-        } else {
-            document.getElementById("postdist").textContent = "--";
+        var distText = "--";
+        if(Array.isArray(dist) && dist.length) {
+            distText = dist.map(function(item) {
+                if(item && typeof item === "object") {
+                    var code = item.error_code || item.code || item.name || "?";
+                    var cnt = (item.count != null ? item.count : (item.value != null ? item.value : "?"));
+                    return code + ": " + cnt;
+                }
+                return String(item);
+            }).join(" • ");
+        } else if(dist && typeof dist === "object") {
+            distText = Object.entries(dist).map(function(x) {
+                return x[0] + ": " + x[1];
+            }).join(" • ");
         }
+        document.getElementById("postdist").textContent = distText;
 
-        // En sık görülen hata
+        // En sık görülen hata — dizi/nesne/string normalize
         var freq = d.most_frequent_error || d.most_common_error || d.top_error;
-        if(freq && typeof freq === "object") {
-            freq = freq.code || freq.name || freq.error || JSON.stringify(freq);
+        var freqText = "--";
+        if(Array.isArray(freq) && freq.length) {
+            freqText = freq.map(function(item) {
+                if(item && typeof item === "object") {
+                    return (item.code || item.name || item.error_code || item.error || "?") +
+                        (item.count != null ? " (" + item.count + ")" : "");
+                }
+                return String(item);
+            }).join(", ");
+        } else if(freq && typeof freq === "object") {
+            freqText = freq.code || freq.name || freq.error || freq.error_code || JSON.stringify(freq);
+        } else if(freq != null) {
+            freqText = String(freq);
         }
-        document.getElementById("postfreq").textContent = freq || "--";
+        document.getElementById("postfreq").textContent = freqText;
 
         var content = document.getElementById("postmortemContent");
         if(d.message) {
@@ -1060,6 +1142,7 @@ async function loadPostmortem() {
             content.textContent = "Olay sonrasi analiz istatistikleri API'den başarıyla alındı.";
         }
 
+        setDemoBadge("#postmortem .card-title", d.source === "live_fallback");
         setUpdate("postmortem-update", Date.now());
         cacheSet("postmortem", d);
     } catch(err) {
@@ -1079,6 +1162,32 @@ async function loadPostmortem() {
 }
 
 
+/* 5.3 — loadWeeklySummary: success_rate ?? win_rate + error_analysis dizi/nesne uyumu */
+function getRate(daily) {
+    if(!daily) return null;
+    if(daily.success_rate != null) return Number(daily.success_rate);
+    if(daily.win_rate != null) return Number(daily.win_rate);
+    return null;
+}
+
+function renderErrorAnalysis(ea) {
+    if(!ea) return "";
+    if(Array.isArray(ea)) {
+        return ea.map(function(it) {
+            if(it && typeof it === "object") {
+                var code = it.error_code || it.code || it.name || "?";
+                var cnt = it.count != null ? it.count : (it.value != null ? it.value : "?");
+                return code + ": " + cnt;
+            }
+            return String(it);
+        }).join(" • ");
+    }
+    if(typeof ea === "object") {
+        return Object.entries(ea).map(function(x){ return x[0] + ": " + x[1]; }).join(" • ");
+    }
+    return String(ea);
+}
+
 async function loadWeeklySummary() {
     const controller = new AbortController();
     const timeoutId = setTimeout(function(){ controller.abort(); }, 10000);
@@ -1090,21 +1199,20 @@ async function loadWeeklySummary() {
         const weekly = d.weekly_summary || {};
         let html = "";
 
+        const dailyRate = getRate(weekly.daily);
+        const weeklyRate = getRate(weekly.weekly);
+
         html += '<h4>Günlük vs Haftalık Karşılaştırma</h4>';
         html += '<div class="metric">' +
             '<span class="metric-k">Günlük Toplam</span>' +
             '<span class="metric-v">' +
-            ((weekly.daily && weekly.daily.total_predictions) || 0) +
+            ((weekly.daily && weekly.daily.total_predictions != null) ? weekly.daily.total_predictions : "--") +
             '</span>' +
             '</div>';
         html += '<div class="metric">' +
             '<span class="metric-k">Günlük Başarı</span>' +
             '<span class="metric-v">' +
-            (
-                weekly.daily && weekly.daily.win_rate !== undefined
-                    ? weekly.daily.win_rate.toFixed(1) + '%'
-                    : 'N/A'
-            ) +
+            (dailyRate != null && !isNaN(dailyRate) ? dailyRate.toFixed(1) + '%' : '--') +
             '</span>' +
             '</div>';
 
@@ -1112,104 +1220,62 @@ async function loadWeeklySummary() {
         html += '<div class="metric">' +
             '<span class="metric-k">Haftalık Toplam</span>' +
             '<span class="metric-v">' +
-            ((weekly.weekly && weekly.weekly.total_predictions) || 0) +
+            ((weekly.weekly && weekly.weekly.total_predictions != null) ? weekly.weekly.total_predictions : "--") +
             '</span>' +
             '</div>';
         html += '<div class="metric">' +
             '<span class="metric-k">Haftalık Başarı</span>' +
             '<span class="metric-v">' +
-            (
-                weekly.weekly && weekly.weekly.win_rate !== undefined
-                    ? weekly.weekly.win_rate.toFixed(1) + '%'
-                    : 'N/A'
-            ) +
+            (weeklyRate != null && !isNaN(weeklyRate) ? weeklyRate.toFixed(1) + '%' : '--') +
             '</span>' +
             '</div>';
 
-        if(d.error_analysis && Object.keys(d.error_analysis).length) {
-            html += '<h4 style="margin-top:16px">Hata Türleri Analizi</h4>';
-            html += '<div style="overflow-x:auto"><table class="stock-table">' +
-                '<thead><tr><th>Hata Kodu</th><th>Sayısı</th><th>Başarı Oranı</th></tr></thead><tbody>';
-            Object.entries(d.error_analysis).forEach(function(entry) {
-                const code = entry[0];
-                const stats = entry[1] || {};
-                const count = stats.count !== undefined ? stats.count : (stats.sayisi || 0);
-                const rate = stats.win_rate !== undefined
-                    ? stats.win_rate.toFixed(1) + '%'
-                    : (stats.success_rate !== undefined ? stats.success_rate.toFixed(1) + '%' : 'N/A');
-                html += '<tr><td><b>' + code + '</b></td><td>' + count + '</td><td>' + rate + '</td></tr>';
-            });
-            html += '</tbody></table></div>';
+        // error_analysis — dizi veya nesne
+        var eaHtml = renderErrorAnalysis(weekly.error_analysis || d.error_analysis);
+        if(eaHtml) {
+            html += '<h4 style="margin-top:16px">Hata Analizi</h4>';
+            html += '<div class="metric"><span class="metric-k">Dağılım</span><span class="metric-v">' + eaHtml + '</span></div>';
         }
 
-        document.getElementById('weeklySummary').innerHTML = html;
-        setUpdate('weekly-update', Date.now());
-        cacheSet('weekly', d);
+        document.getElementById("weeklySummary").innerHTML = html;
+        setDemoBadge("#weekly .card-title", d.source === "live_fallback");
+        setUpdate("weekly-update", Date.now());
     } catch(err) {
         clearTimeout(timeoutId);
-        const timedOut = err.name === "AbortError";
-        if(timedOut) toast("API yanıt vermedi (10sn zaman aşımı)", "error", 3000);
-        const cached = cacheGet('weekly', 300000);
-        if(cached) {
-            document.getElementById('weeklySummary').innerHTML =
-                '<span style="color:var(--text-3)">Veriler cache\'den yüklendi (bağlantı sorunu).</span>';
-            if(!timedOut) toast("Haftalık analiz cache'den yüklendi", "info", 3000);
-        } else {
-            document.getElementById('weeklySummary').innerHTML =
-                '<span style="color:var(--danger)">' +
-                'Hata: ' +
-                (timedOut ? "Istek zaman aşımına uğradı (10sn)" : err.message) +
-                '</span>';
-        }
-        setUpdate('weekly-update', null);
+        document.getElementById("weeklySummary").innerHTML =
+            '<span style="color:var(--danger)">Haftalık analiz yüklenemedi: ' + err.message + '</span>';
+        setUpdate("weekly-update", null);
     }
 }
 
+/* Yenile butonu — eksik olan refreshWeekly() tanımı */
 function refreshWeekly() {
-    checkApiHealth();
+    toast("Haftalık analiz yenileniyor...", "info", 1500);
     loadWeeklySummary();
-    loadPostmortem();
 }
 
-// === YENI: Tum verileri tek cagride yenile ===
+/* R tuşunun çağırdığı loadAllData() — daha önce eksikti */
 function loadAllData() {
+    checkApiHealth();
     loadScores();
     loadMacro();
-    loadStocks();
-    loadWatchlist();
-    loadEliteFunds();
-    loadBacktest();
-    loadMemoryStats();
-    loadKnowledgeGraph();
-    loadPipeline();
-    loadPostmortem();
+    if(allStocks.length) loadStocks();
     loadWeeklySummary();
+    if(document.getElementById("pipeline").classList.contains("active")) loadPipeline();
+    if(document.getElementById("postmortem").classList.contains("active")) loadPostmortem();
+    if(document.getElementById("backtest").classList.contains("active")) loadBacktest();
+    if(document.getElementById("elite").classList.contains("active")) loadEliteFunds();
+    if(document.getElementById("memory").classList.contains("active")) loadMemoryStats();
+    if(document.getElementById("knowledge").classList.contains("active")) loadKnowledgeGraph();
 }
 
-// === Sadelestirilmis init ===
-function init() {
+/* Sayfa açılışında verileri yükle */
+document.addEventListener("DOMContentLoaded", function() {
     checkApiHealth();
-    loadAllData();
-
-    // Skorlar ve makro 15 saniyede bir
-    setInterval(function() {
-        loadScores();
-        loadMacro();
-    }, 15000);
-
-    // Diger tum veriler 30 saniyede bir
-    setInterval(function() {
-        loadWatchlist();
-        loadEliteFunds();
-        loadBacktest();
-        loadMemoryStats();
-        loadKnowledgeGraph();
-        loadPipeline();
-        loadPostmortem();
-        loadWeeklySummary();
-    }, 30000);
-}
-init();
+    loadScores();
+    loadMacro();
+    loadWeeklySummary();
+});
 </script>
 </body>
 </html>
