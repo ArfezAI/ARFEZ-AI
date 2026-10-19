@@ -1,29 +1,58 @@
 # fair_value_engine.py
 # ENGINE_VERSION 1.1.0
-#
-# Revizyon notları (madde numaraları 1. Revize edilecek yerler.txt ile eşleşir):
-#   1. validate_number: iş kuralı kontrolü genişletildi, hata mesajları netleştirildi.
-#   2. validate_data_quality: rapor tarihi ile çekim tarihi ayrıldı; price_date zorunlu;
-#      güncellik sınırları veri türü/piyasa takvimine göre parametrize edildi.
-#   3. calculate_pe_fair_value: hesaplama ile F/K tahmini ayrıştırıldı; tahmin meta verisi
-#      (kaynak, tarih, dayanak) ayrı bir sarmalayıcıda tutuluyor; çekirdek hesap korundu.
-#   4. calculate_dcf_fair_value: negatif/sıfır FCF için alternatif mod, oran makullük
-#      kontrolleri, terminal değer payı raporlaması, negatif nakit/borç ele alımı,
-#      birim/kapsam uyum kontrolü eklendi.
-#   5. combine_fair_values: yinelenen model adları tespit edilip hata fırlatılıyor;
-#      ağırlık gerekçesi opsiyonel olarak raporlanıyor.
-#   6. calculate_upside: eşikler parametreleştirildi; yatırım tavsiyesi olmadığı notu eklendi.
-#   7. calculate_valuation_scenarios: kullanılmayan forward_eps kaldırıldı (uyumluluk için
-#      opsiyonel tutuldu, kullanılırsa uyarı verir); ağırlık kuralları netleştirildi;
-#      senaryo varsayım kaynakları saklanıyor.
-#   8. __main__: örnek kullanım olarak korundu ama gerçek veri akışından izole edildi;
-#      demo olduğu açıkça belirtildi.
+"""
+ARFEZ AI - Fair Value Engine
+============================
+
+Entegrasyon notları
+-------------------
+1. P/E, DCF ve birleşik değerleme API/collector katmanlarından çağrılmalıdır.
+2. DCF yalnızca doğrulanmış, aynı para biriminde ve aynı kapsamda olan
+   girdilerle hesaplanmalıdır.
+3. Geçersiz modeller birleşik değerlemeye alınmamalıdır.
+4. Senaryo varsayımlarının kaynakları saklanmalıdır.
+5. Model ağırlıkları ve motor sürümü sonuçlarla birlikte kaydedilmelidir.
+6. Demo verileri gerçek piyasa verilerinden ayrı tutulmalıdır.
+
+Sürüm kaynağı
+-------------
+Tek sürüm kaynağı: ``ENGINE_VERSION``. API ve collector katmanları bu sabiti
+import etmelidir; ayrı bir sürüm sabiti tanımlamak sürüm kaymasına yol açar.
+(Geriye dönük uyumluluk için ``FAIR_VALUE_ENGINE_VERSION`` bu sabite alias'dır.)
+
+Revizyon notları (madde numaraları 1. Revize edilecek yerler.txt ile eşleşir):
+  1. validate_number: iş kuralı kontrolü genişletildi, hata mesajları netleştirildi.
+  2. validate_data_quality: rapor tarihi ile çekim tarihi ayrıldı; price_date zorunlu;
+     güncellik sınırları veri türü/piyasa takvimine göre parametrize edildi.
+  3. calculate_pe_fair_value: hesaplama ile F/K tahmini ayrıştırıldı; tahmin meta verisi
+     (kaynak, tarih, dayanak) ayrı bir sarmalayıcıda tutuluyor; çekirdek hesap korundu.
+  4. calculate_dcf_fair_value: negatif/sıfır FCF için alternatif mod, oran makullük
+     kontrolleri, terminal değer payı raporlaması, negatif nakit/borç ele alımı,
+     birim/kapsam uyum kontrolü eklendi.
+  5. combine_fair_values: yinelenen model adları tespit edilip hata fırlatılıyor;
+     ağırlık gerekçesi opsiyonel olarak raporlanıyor.
+  6. calculate_upside: eşikler parametreleştirildi; yatırım tavsiyesi olmadığı notu eklendi.
+  7. calculate_valuation_scenarios: kullanılmayan forward_eps kaldırıldı (uyumluluk için
+     opsiyonel tutuldu, kullanılırsa uyarı verir); ağırlık kuralları netleştirildi;
+     senaryo varsayım kaynakları saklanıyor.
+  8. __main__: örnek kullanım olarak korundu ama gerçek veri akışından izole edildi;
+     demo olduğu açıkça belirtildi.
+"""
 
 from datetime import date, datetime
 from math import isfinite
 
 
+# ============================================================
+# ARFEZ AI - FAIR VALUE ENGINE VERSION
+# ============================================================
+# Tek sürüm kaynağı. API (/api/health) ve collector bu sabiti import eder.
+# Her yeni değerleme mantığı değişikliğinde bu sabiti güncelle.
 ENGINE_VERSION = "1.1.0"
+
+# Geriye dönük uyumluluk alias'ı (yeni kod ENGINE_VERSION kullanmalı).
+FAIR_VALUE_ENGINE_VERSION = ENGINE_VERSION
+
 
 # --- 1. Revizyon: merkezi iş kuralları sabitleri --------------------------------
 # Tek yerde toplanan eşikler ve sınırlar; çağrılar bunları override edebilir.
@@ -281,21 +310,19 @@ def calculate_dcf_fair_value(
     max_terminal_g=DEFAULT_MAX_TERMINAL_G,
     max_terminal_value_share=DEFAULT_MAX_TERMINAL_VALUE_SHARE,
     allow_negative_fcf=False,
-    # --- 4. Revizyon: birim/kapsam doğrulaması için yeni parametreler ---
     valuation_currency=None,
     fcf_currency=None,
     cash_currency=None,
     debt_currency=None,
-    shares_currency=None,           # hisse sayısı birimsizdir; None beklenir
-    valuation_scope=None,           # ör. "consolidated", "parent_only", "segment"
+    shares_currency=None,
+    valuation_scope=None,
     fcf_scope=None,
-    # --- 4. Revizyon: FCF niteliği kontrolleri ---
-    fcf_history=None,               # son N yıl FCF listesi (ör. [1.2e6, -0.3e6, 2.0e6])
-    fcf_is_normalized=False,        # normalizasyon yapıldı mı?
-    normalized_by=None,             # "analyst", "management", "engine"
-    fcf_definition=None,            # "FCFF", "FCFE", "OCF-capex" vb.
-    capex=None,                     # son 12 aylık capex (mutlak değer)
-    depreciation_amortization=None, # son 12 aylık D&A
+    fcf_history=None,
+    fcf_is_normalized=False,
+    normalized_by=None,
+    fcf_definition=None,
+    capex=None,
+    depreciation_amortization=None,
 ):
     """
     Basitleştirilmiş FCFF DCF modeli.
@@ -327,9 +354,7 @@ def calculate_dcf_fair_value(
         diluted_shares, "diluted_shares", strictly_positive=True
     )
 
-    # ------------------------------------------------------------------
     # 4a. Birim doğrulaması
-    # ------------------------------------------------------------------
     if shares_currency is not None:
         raise ValueError(
             "shares_currency verilmemeli; seyreltilmiş hisse sayısı birimsizdir."
@@ -350,9 +375,7 @@ def calculate_dcf_fair_value(
             "FCFF, nakit, borç ve değerleme aynı para biriminde olmalı."
         )
 
-    # ------------------------------------------------------------------
     # 4b. Kapsam doğrulaması
-    # ------------------------------------------------------------------
     if (
         valuation_scope is not None
         and fcf_scope is not None
@@ -363,9 +386,7 @@ def calculate_dcf_fair_value(
             f"fcf_scope={fcf_scope}. Aynı kapsamda olmalı."
         )
 
-    # ------------------------------------------------------------------
     # 4c. FCF tanımı
-    # ------------------------------------------------------------------
     if fcf_definition is not None:
         if fcf_definition not in ("FCFF", "FCFE", "OCF-capex"):
             raise ValueError(
@@ -380,9 +401,7 @@ def calculate_dcf_fair_value(
 
     warnings = []
 
-    # ------------------------------------------------------------------
     # 4d. FCF geçmişi niteliği
-    # ------------------------------------------------------------------
     fcf_quality = {}
     if fcf_history is not None:
         if not isinstance(fcf_history, (list, tuple)) or not fcf_history:
@@ -422,9 +441,7 @@ def calculate_dcf_fair_value(
                 "düşük güvenilirlikte olabilir."
             )
 
-    # ------------------------------------------------------------------
     # 4e. Normalizasyon kontrolü
-    # ------------------------------------------------------------------
     if not fcf_is_normalized:
         warnings.append(
             "FCF normalize edilmemiş; tek seferlik kalemler sonucu saptırabilir."
@@ -432,9 +449,7 @@ def calculate_dcf_fair_value(
     else:
         fcf_quality["normalized_by"] = normalized_by
 
-    # ------------------------------------------------------------------
     # 4f. Capex / D&A dengesi
-    # ------------------------------------------------------------------
     capex_da_ratio = None
     if capex is not None and depreciation_amortization is not None:
         capex_val = validate_number(capex, "capex", minimum=0)
@@ -450,9 +465,7 @@ def calculate_dcf_fair_value(
                     "Yatırım yoğunluğu FCF'yi baskılıyor olabilir."
                 )
 
-    # ------------------------------------------------------------------
-    # Negatif FCF davranışı (önceki revizyondan korundu)
-    # ------------------------------------------------------------------
+    # Negatif FCF davranışı
     if fcf <= 0:
         if not allow_negative_fcf:
             raise ValueError(
@@ -469,7 +482,7 @@ def calculate_dcf_fair_value(
             "warnings": warnings,
         }
 
-    # Oran makullük kontrolleri (önceki revizyondan korundu)
+    # Oran makullük kontrolleri
     if not (min_wacc <= wacc <= max_wacc):
         raise ValueError(
             f"WACC makul aralık dışında: {wacc} ({min_wacc}–{max_wacc})."
@@ -608,6 +621,21 @@ def combine_fair_values(models):
     """
     Geçerli model sonuçlarını ağırlıklı birleştirir.
 
+    Beklenen giriş şeması (SÖZLEŞME):
+        models: [
+            {
+                "result": <model sonucu sözlüğü; içinde "model", "valid",
+                           "fair_value" olmalı>,
+                "weight": <sayı > 0>,
+                "weight_rationale": <opsiyonel string>,
+            },
+            ...
+        ]
+
+    NOT: Bu fonksiyon "name" anahtarını KULLANMAZ; model adı
+    result["model"] alanından okunur. Üst katman "name" gönderiyorsa
+    bunu result içine taşımalıdır.
+
     Revizyonlar (madde 5):
       - Yinelenen model adları tespit edilir ve hata fırlatılır; böylece
         normalized_weights sözlüğünde üzerine yazma önlenir.
@@ -620,7 +648,6 @@ def combine_fair_values(models):
     for item in models:
         result = item.get("result")
         weight_raw = item.get("weight")
-        # weight eksikse model sessizce atlanır (docstring ile tutarlı)
         if weight_raw is None:
             continue
         try:
@@ -740,7 +767,7 @@ def calculate_valuation_scenarios(
     current_price,
     scenarios,
     require_weights_sum_one=False,
-    **_deprecated_kwargs,   # forward_eps gibi eski parametreleri yakalamak için
+    **_deprecated_kwargs,
 ):
     """
     Senaryo bazlı değerleme.
@@ -768,7 +795,6 @@ def calculate_valuation_scenarios(
       - Ağırlık kuralları: her ağırlık [0,1], toplam > 0;
         require_weights_sum_one=True ise toplam == 1.
     """
-    # --- 7. Revizyon: kullanılmayan parametre artık yok ---
     if _deprecated_kwargs:
         deprecated = ", ".join(_deprecated_kwargs.keys())
         raise TypeError(
@@ -784,7 +810,6 @@ def calculate_valuation_scenarios(
         raise ValueError("Senaryo sözlüğü boş olamaz.")
 
     def _validate_source(src, field):
-        """Kaynak meta verisini doğrular; None ise None döner."""
         if src is None:
             return None
         if not isinstance(src, dict):
